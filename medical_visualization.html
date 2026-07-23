@@ -1,0 +1,211 @@
+<style>
+.lx-highlight { position: relative; border-radius:3px; padding:1px 2px;}
+.lx-highlight .lx-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  background: #333;
+  color: #fff;
+  text-align: left;
+  border-radius: 4px;
+  padding: 6px 8px;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  max-width: 240px;
+  white-space: normal;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.lx-highlight:hover .lx-tooltip { visibility: visible; opacity:1; }
+.lx-animated-wrapper { max-width: 100%; font-family: Arial, sans-serif; }
+.lx-controls {
+  background: #fafafa; border: 1px solid #90caf9; border-radius: 8px;
+  padding: 12px; margin-bottom: 16px;
+}
+.lx-button-row {
+  display: flex; justify-content: center; gap: 8px; margin-bottom: 12px;
+}
+.lx-control-btn {
+  background: #4285f4; color: white; border: none; border-radius: 4px;
+  padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500;
+  transition: background-color 0.2s;
+}
+.lx-control-btn:hover { background: #3367d6; }
+.lx-progress-container {
+  margin-bottom: 8px;
+}
+.lx-progress-slider {
+  width: 100%; margin: 0; appearance: none; height: 6px;
+  background: #ddd; border-radius: 3px; outline: none;
+}
+.lx-progress-slider::-webkit-slider-thumb {
+  appearance: none; width: 18px; height: 18px; background: #4285f4;
+  border-radius: 50%; cursor: pointer;
+}
+.lx-progress-slider::-moz-range-thumb {
+  width: 18px; height: 18px; background: #4285f4; border-radius: 50%;
+  cursor: pointer; border: none;
+}
+.lx-status-text {
+  text-align: center; font-size: 12px; color: #666; margin-top: 4px;
+}
+.lx-text-window {
+  font-family: monospace; white-space: pre-wrap; border: 1px solid #90caf9;
+  padding: 12px; max-height: 260px; overflow-y: auto; margin-bottom: 12px;
+  line-height: 1.6;
+}
+.lx-attributes-panel {
+  background: #fafafa; border: 1px solid #90caf9; border-radius: 6px;
+  padding: 8px 10px; margin-top: 8px; font-size: 13px;
+}
+.lx-current-highlight {
+  border-bottom: 4px solid #ff4444;
+  font-weight: bold;
+  animation: lx-pulse 1s ease-in-out;
+}
+@keyframes lx-pulse {
+  0% { text-decoration-color: #ff4444; }
+  50% { text-decoration-color: #ff0000; }
+  100% { text-decoration-color: #ff4444; }
+}
+.lx-legend {
+  font-size: 12px; margin-bottom: 8px;
+  padding-bottom: 8px; border-bottom: 1px solid #e0e0e0;
+}
+.lx-label {
+  display: inline-block;
+  padding: 2px 4px;
+  border-radius: 3px;
+  margin-right: 4px;
+  color: #000;
+}
+.lx-attr-key {
+  font-weight: 600;
+  color: #1565c0;
+  letter-spacing: 0.3px;
+}
+.lx-attr-value {
+  font-weight: 400;
+  opacity: 0.85;
+  letter-spacing: 0.2px;
+}
+
+/* Add optimizations with larger fonts and better readability for GIFs */
+.lx-gif-optimized .lx-text-window { font-size: 16px; line-height: 1.8; }
+.lx-gif-optimized .lx-attributes-panel { font-size: 15px; }
+.lx-gif-optimized .lx-current-highlight { text-decoration-thickness: 4px; }
+</style>
+    <div class="lx-animated-wrapper lx-gif-optimized">
+      <div class="lx-attributes-panel">
+        <div class="lx-legend">Highlights Legend: <span class="lx-label" style="background-color:#D2E3FC;">symptom</span></div>
+        <div id="attributesContainer"></div>
+      </div>
+      <div class="lx-text-window" id="textWindow">
+
+PATIENT CONSULTATION NOTES - Date: 2024-01-15
+
+Chief Complaint: Patient presents with <span class="lx-highlight lx-current-highlight" data-idx="0" style="background-color:#D2E3FC;">persistent cough</span> and <span class="lx-highlight" data-idx="1" style="background-color:#D2E3FC;">difficulty breathing</span>
+
+History of Present Illness:
+Patient is a 45-year-old male who has been experiencing a <span class="lx-highlight" data-idx="2" style="background-color:#D2E3FC;">dry cough</span> for the past 3 weeks.
+The cough is worse at night and disrupts sleep. He also reports <span class="lx-highlight" data-idx="3" style="background-color:#D2E3FC;">shortness of breath</span>,
+especially during physical activity. Additionally, the patient complains of <span class="lx-highlight" data-idx="4" style="background-color:#D2E3FC;">mild chest pain</span>
+when coughing and has noticed some <span class="lx-highlight" data-idx="5" style="background-color:#D2E3FC;">fatigue</span> over the past few days.
+
+The patient denies fever but mentions experiencing <span class="lx-highlight" data-idx="6" style="background-color:#D2E3FC;">occasional headaches</span>.
+He reports <span class="lx-highlight" data-idx="7" style="background-color:#D2E3FC;">nasal congestion</span> that started about 5 days ago, which may be related to
+seasonal allergies. The patient also mentions <span class="lx-highlight" data-idx="8" style="background-color:#D2E3FC;">feeling dizzy</span> upon standing quickly.
+
+Physical Examination:
+Vital signs are within normal limits. Lung auscultation reveals some <span class="lx-highlight" data-idx="9" style="background-color:#D2E3FC;">wheezing</span>.
+No signs of infection noted.
+
+Assessment:
+Likely viral upper respiratory infection with possible bronchospasm.
+Recommend hydration, rest, and follow-up in one week if symptoms persist.
+
+      </div>
+      <div class="lx-controls">
+        <div class="lx-button-row">
+          <button class="lx-control-btn" onclick="playPause()">▶️ Play</button>
+          <button class="lx-control-btn" onclick="prevExtraction()">⏮ Previous</button>
+          <button class="lx-control-btn" onclick="nextExtraction()">⏭ Next</button>
+        </div>
+        <div class="lx-progress-container">
+          <input type="range" id="progressSlider" class="lx-progress-slider"
+                 min="0" max="9" value="0"
+                 onchange="jumpToExtraction(this.value)">
+        </div>
+        <div class="lx-status-text">
+          Entity <span id="entityInfo">1/10</span> |
+          Pos <span id="posInfo">[87-103]</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        const extractions = [{"index": 0, "class": "symptom", "text": "persistent cough", "color": "#D2E3FC", "startPos": 87, "endPos": 103, "beforeText": "\nPATIENT CONSULTATION NOTES - Date: 2024-01-15\n\nChief Complaint: Patient presents with ", "extractionText": "persistent cough", "afterText": " and difficulty breathing\n\nHistory of Present Illness:\nPatient is a 45-year-old male who has been experiencing a dry cough for the past 3 weeks.\nThe c", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">chest</span>, <span class=\"lx-attr-key\">severity</span>: <span class=\"lx-attr-value\">persistent</span>, <span class=\"lx-attr-key\">duration</span>: <span class=\"lx-attr-value\">3 weeks</span>}</div>"}, {"index": 1, "class": "symptom", "text": "difficulty breathing", "color": "#D2E3FC", "startPos": 108, "endPos": 128, "beforeText": "\nPATIENT CONSULTATION NOTES - Date: 2024-01-15\n\nChief Complaint: Patient presents with persistent cough and ", "extractionText": "difficulty breathing", "afterText": "\n\nHistory of Present Illness:\nPatient is a 45-year-old male who has been experiencing a dry cough for the past 3 weeks.\nThe cough is worse at night an", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">chest</span>}</div>"}, {"index": 2, "class": "symptom", "text": "dry cough", "color": "#D2E3FC", "startPos": 216, "endPos": 225, "beforeText": "atient presents with persistent cough and difficulty breathing\n\nHistory of Present Illness:\nPatient is a 45-year-old male who has been experiencing a ", "extractionText": "dry cough", "afterText": " for the past 3 weeks.\nThe cough is worse at night and disrupts sleep. He also reports shortness of breath,\nespecially during physical activity. Addit", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">chest</span>, <span class=\"lx-attr-key\">duration</span>: <span class=\"lx-attr-value\">past 3 weeks</span>}</div>"}, {"index": 3, "class": "symptom", "text": "shortness of breath", "color": "#D2E3FC", "startPos": 312, "endPos": 331, "beforeText": "ent is a 45-year-old male who has been experiencing a dry cough for the past 3 weeks.\nThe cough is worse at night and disrupts sleep. He also reports ", "extractionText": "shortness of breath", "afterText": ",\nespecially during physical activity. Additionally, the patient complains of mild chest pain\nwhen coughing and has noticed some fatigue over the past", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">chest</span>}</div>"}, {"index": 4, "class": "symptom", "text": "mild chest pain", "color": "#D2E3FC", "startPos": 409, "endPos": 424, "beforeText": "s worse at night and disrupts sleep. He also reports shortness of breath,\nespecially during physical activity. Additionally, the patient complains of ", "extractionText": "mild chest pain", "afterText": "\nwhen coughing and has noticed some fatigue over the past few days.\n\nThe patient denies fever but mentions experiencing occasional headaches.\nHe repor", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">chest</span>, <span class=\"lx-attr-key\">severity</span>: <span class=\"lx-attr-value\">mild</span>}</div>"}, {"index": 5, "class": "symptom", "text": "fatigue", "color": "#D2E3FC", "startPos": 460, "endPos": 467, "beforeText": "s shortness of breath,\nespecially during physical activity. Additionally, the patient complains of mild chest pain\nwhen coughing and has noticed some ", "extractionText": "fatigue", "afterText": " over the past few days.\n\nThe patient denies fever but mentions experiencing occasional headaches.\nHe reports nasal congestion that started about 5 da", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">duration</span>: <span class=\"lx-attr-value\">past few days</span>}</div>"}, {"index": 6, "class": "symptom", "text": "occasional headaches", "color": "#D2E3FC", "startPos": 544, "endPos": 564, "beforeText": "t complains of mild chest pain\nwhen coughing and has noticed some fatigue over the past few days.\n\nThe patient denies fever but mentions experiencing ", "extractionText": "occasional headaches", "afterText": ".\nHe reports nasal congestion that started about 5 days ago, which may be related to\nseasonal allergies. The patient also mentions feeling dizzy upon ", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">head</span>, <span class=\"lx-attr-key\">severity</span>: <span class=\"lx-attr-value\">occasional</span>}</div>"}, {"index": 7, "class": "symptom", "text": "nasal congestion", "color": "#D2E3FC", "startPos": 577, "endPos": 593, "beforeText": "en coughing and has noticed some fatigue over the past few days.\n\nThe patient denies fever but mentions experiencing occasional headaches.\nHe reports ", "extractionText": "nasal congestion", "afterText": " that started about 5 days ago, which may be related to\nseasonal allergies. The patient also mentions feeling dizzy upon standing quickly.\n\nPhysical E", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">nasal</span>, <span class=\"lx-attr-key\">duration</span>: <span class=\"lx-attr-value\">started about 5 days ago</span>}</div>"}, {"index": 8, "class": "symptom", "text": "feeling dizzy", "color": "#D2E3FC", "startPos": 695, "endPos": 708, "beforeText": "ccasional headaches.\nHe reports nasal congestion that started about 5 days ago, which may be related to\nseasonal allergies. The patient also mentions ", "extractionText": "feeling dizzy", "afterText": " upon standing quickly.\n\nPhysical Examination:\nVital signs are within normal limits. Lung auscultation reveals some wheezing.\nNo signs of infection no", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {}</div>"}, {"index": 9, "class": "symptom", "text": "wheezing", "color": "#D2E3FC", "startPos": 824, "endPos": 832, "beforeText": "atient also mentions feeling dizzy upon standing quickly.\n\nPhysical Examination:\nVital signs are within normal limits. Lung auscultation reveals some ", "extractionText": "wheezing", "afterText": ".\nNo signs of infection noted.\n\nAssessment:\nLikely viral upper respiratory infection with possible bronchospasm.\nRecommend hydration, rest, and follow", "attributesHtml": "<div><strong>class:</strong> symptom</div><div><strong>attributes:</strong> {<span class=\"lx-attr-key\">body_part</span>: <span class=\"lx-attr-value\">lung</span>}</div>"}];
+        let currentIndex = 0;
+        let isPlaying = false;
+        let animationInterval = null;
+        let animationSpeed = 1.0;
+
+        function updateDisplay() {
+          const extraction = extractions[currentIndex];
+          if (!extraction) return;
+
+          document.getElementById('attributesContainer').innerHTML = extraction.attributesHtml;
+          document.getElementById('entityInfo').textContent = (currentIndex + 1) + '/' + extractions.length;
+          document.getElementById('posInfo').textContent = '[' + extraction.startPos + '-' + extraction.endPos + ']';
+          document.getElementById('progressSlider').value = currentIndex;
+
+          const playBtn = document.querySelector('.lx-control-btn');
+          if (playBtn) playBtn.textContent = isPlaying ? '⏸ Pause' : '▶️ Play';
+
+          const prevHighlight = document.querySelector('.lx-text-window .lx-current-highlight');
+          if (prevHighlight) prevHighlight.classList.remove('lx-current-highlight');
+          const currentSpan = document.querySelector('.lx-text-window span[data-idx="' + currentIndex + '"]');
+          if (currentSpan) {
+            currentSpan.classList.add('lx-current-highlight');
+            currentSpan.scrollIntoView({block: 'center', behavior: 'smooth'});
+          }
+        }
+
+        function nextExtraction() {
+          currentIndex = (currentIndex + 1) % extractions.length;
+          updateDisplay();
+        }
+
+        function prevExtraction() {
+          currentIndex = (currentIndex - 1 + extractions.length) % extractions.length;
+          updateDisplay();
+        }
+
+        function jumpToExtraction(index) {
+          currentIndex = parseInt(index);
+          updateDisplay();
+        }
+
+        function playPause() {
+          if (isPlaying) {
+            clearInterval(animationInterval);
+            isPlaying = false;
+          } else {
+            animationInterval = setInterval(nextExtraction, animationSpeed * 1000);
+            isPlaying = true;
+          }
+          updateDisplay();
+        }
+
+        window.playPause = playPause;
+        window.nextExtraction = nextExtraction;
+        window.prevExtraction = prevExtraction;
+        window.jumpToExtraction = jumpToExtraction;
+
+        updateDisplay();
+      })();
+    </script>
