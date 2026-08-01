@@ -77,20 +77,67 @@ EXTRACTION_EXAMPLES = [
     )
 ]
 
+# Mirrors the Diagnosis entity in schema.json (status/certainty enums). Runs
+# against the Diagnosis field only, not the combined consultation text — that
+# field is where clinicians enter diagnosis data, so it's the right scope for
+# this extraction (unlike symptoms, which can appear anywhere in the note).
+DIAGNOSIS_EXTRACTION_PROMPT = """Extract all diagnoses or clinical impressions mentioned in this text.
+For each diagnosis, identify:
+- The exact diagnosis name as mentioned in the text
+- The status: suspected, confirmed, resolved, or chronic_ongoing (if mentioned or implied)
+- The certainty: definite, probable, or possible (if mentioned or implied)
 
-def run_extraction(text: str, model_id: str) -> list[dict]:
+Use exact text from the document. Do not paraphrase or combine diagnoses.
+List diagnoses in the order they appear in the text."""
+
+DIAGNOSIS_EXTRACTION_EXAMPLES = [
+    lx.data.ExampleData(
+        text="""Likely community-acquired pneumonia, probable diagnosis pending chest X-ray.
+        Chronic hypertension, well controlled on current medication. Query early
+        appendicitis - suspected, referred for surgical review.""",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="diagnosis",
+                extraction_text="community-acquired pneumonia",
+                attributes={
+                    "status": "suspected",
+                    "certainty": "probable",
+                },
+            ),
+            lx.data.Extraction(
+                extraction_class="diagnosis",
+                extraction_text="chronic hypertension",
+                attributes={
+                    "status": "chronic_ongoing",
+                    "certainty": "definite",
+                },
+            ),
+            lx.data.Extraction(
+                extraction_class="diagnosis",
+                extraction_text="appendicitis",
+                attributes={
+                    "status": "suspected",
+                    "certainty": "possible",
+                },
+            ),
+        ],
+    )
+]
+
+
+def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> list[dict]:
     result = lx.extract(
         text_or_documents=text,
-        prompt_description=EXTRACTION_PROMPT,
-        examples=EXTRACTION_EXAMPLES,
+        prompt_description=prompt,
+        examples=examples,
         model_id=model_id,
         extraction_passes=1,
         max_workers=1,
     )
 
-    symptoms = []
+    items = []
     for extraction in result.extractions:
-        symptoms.append(
+        items.append(
             {
                 "text": extraction.extraction_text,
                 "attributes": extraction.attributes or {},
@@ -102,29 +149,31 @@ def run_extraction(text: str, model_id: str) -> list[dict]:
                 else None,
             }
         )
-    return symptoms
+    return items
 
 
-def build_csv(symptoms: list[dict]) -> str:
+def build_csv(items: list[dict], id_prefix: str, text_field: str, attribute_fields: list[str]) -> str:
     output = StringIO()
-    headers = ["symptom_id", "symptom_text", "body_part", "severity", "duration", "timestamp"]
+    headers = [f"{id_prefix}_id", text_field, *attribute_fields, "timestamp"]
     writer = csv.DictWriter(output, fieldnames=headers)
     writer.writeheader()
 
     timestamp = datetime.now().isoformat()
-    for idx, symptom in enumerate(symptoms, 1):
-        attributes = symptom.get("attributes", {})
-        writer.writerow(
-            {
-                "symptom_id": f"symptom_{idx}",
-                "symptom_text": symptom.get("text", ""),
-                "body_part": attributes.get("body_part"),
-                "severity": attributes.get("severity"),
-                "duration": attributes.get("duration"),
-                "timestamp": timestamp,
-            }
-        )
+    for idx, item in enumerate(items, 1):
+        attributes = item.get("attributes", {})
+        row = {f"{id_prefix}_id": f"{id_prefix}_{idx}", text_field: item.get("text", ""), "timestamp": timestamp}
+        for field in attribute_fields:
+            row[field] = attributes.get(field)
+        writer.writerow(row)
     return output.getvalue()
+
+
+def build_symptom_csv(symptoms: list[dict]) -> str:
+    return build_csv(symptoms, "symptom", "symptom_text", ["body_part", "severity", "duration"])
+
+
+def build_diagnosis_csv(diagnoses: list[dict]) -> str:
+    return build_csv(diagnoses, "diagnosis", "diagnosis_text", ["status", "certainty"])
 
 
 def get_source_context(symptom: dict, original_text: str, padding: int = 100):
@@ -143,14 +192,75 @@ def get_source_context(symptom: dict, original_text: str, padding: int = 100):
     }
 
 
+def render_results_panel(state_key, source_text_key, expanded_key, panel_title, item_name, csv_builder, csv_filename_prefix):
+    items = st.session_state[state_key]
+    if not items:
+        st.info(f'Click "Analyse" to extract {item_name}s from the clinical data')
+        return
+
+    st.subheader(f"{panel_title} ({len(items)})")
+
+    for idx, item in enumerate(items):
+        text_col, source_col, delete_col = st.columns([6, 1, 1])
+        text_col.markdown(f"**{item['text']}**")
+
+        context = get_source_context(item, st.session_state[source_text_key])
+        if context and source_col.button("📍", key=f"{state_key}_source_{idx}"):
+            st.session_state[expanded_key] = None if st.session_state[expanded_key] == idx else idx
+
+        if delete_col.button("✕", key=f"{state_key}_delete_{idx}"):
+            st.session_state[state_key].pop(idx)
+            st.rerun()
+
+        attributes = item.get("attributes") or {}
+        attr_bits = [f"**{k.replace('_', ' ').title()}:** {v}" for k, v in attributes.items() if v]
+        if attr_bits:
+            st.caption(" · ".join(attr_bits))
+
+        if context and st.session_state[expanded_key] == idx:
+            st.markdown(
+                f"Source: _{context['before']}_ "
+                f":orange[**{context['highlighted']}**] "
+                f"_{context['after']}_"
+            )
+
+        st.divider()
+
+    with st.form(f"add_{state_key}_form", clear_on_submit=True):
+        add_col, submit_col = st.columns([5, 1])
+        new_text = add_col.text_input(
+            f"Add new {item_name}", placeholder=f"Add new {item_name}...", label_visibility="collapsed"
+        )
+        submitted = submit_col.form_submit_button("Add")
+        if submitted and new_text.strip():
+            st.session_state[state_key].append({"text": new_text.strip(), "attributes": {}, "position": None})
+            st.rerun()
+
+    csv_content = csv_builder(items)
+    st.download_button(
+        "Generate Graph (CSV)",
+        data=csv_content,
+        file_name=f"{csv_filename_prefix}_{datetime.now().strftime('%Y-%m-%d')}.csv",
+        mime="text/csv",
+        use_container_width=True,
+        key=f"download_{state_key}",
+    )
+
+
 st.set_page_config(page_title="Clinical Consultation Analyzer", page_icon="🏥", layout="wide")
 
 if "symptoms" not in st.session_state:
     st.session_state.symptoms = []
 if "original_text" not in st.session_state:
     st.session_state.original_text = ""
-if "expanded_index" not in st.session_state:
-    st.session_state.expanded_index = None
+if "symptom_expanded_index" not in st.session_state:
+    st.session_state.symptom_expanded_index = None
+if "diagnoses" not in st.session_state:
+    st.session_state.diagnoses = []
+if "diagnosis_source_text" not in st.session_state:
+    st.session_state.diagnosis_source_text = ""
+if "diagnosis_expanded_index" not in st.session_state:
+    st.session_state.diagnosis_expanded_index = None
 if "error" not in st.session_state:
     st.session_state.error = ""
 
@@ -200,63 +310,47 @@ with right:
             st.session_state.error = ""
             with st.spinner("Analysing..."):
                 try:
-                    st.session_state.symptoms = run_extraction(all_text, model_id)
+                    st.session_state.symptoms = run_extraction(
+                        all_text, model_id, EXTRACTION_PROMPT, EXTRACTION_EXAMPLES
+                    )
                     st.session_state.original_text = all_text
-                    st.session_state.expanded_index = None
+                    st.session_state.symptom_expanded_index = None
+
+                    if diagnosis.strip():
+                        st.session_state.diagnoses = run_extraction(
+                            diagnosis, model_id, DIAGNOSIS_EXTRACTION_PROMPT, DIAGNOSIS_EXTRACTION_EXAMPLES
+                        )
+                        st.session_state.diagnosis_source_text = diagnosis
+                    else:
+                        st.session_state.diagnoses = []
+                        st.session_state.diagnosis_source_text = ""
+                    st.session_state.diagnosis_expanded_index = None
                 except Exception as e:
                     st.session_state.error = f"Failed to analyse: {e}"
             st.rerun()
 
-    if not st.session_state.symptoms:
-        st.info('Click "Analyse" to extract symptoms from the clinical data')
-    else:
-        st.subheader(f"Extracted Symptoms ({len(st.session_state.symptoms)})")
+    symptoms_tab, diagnoses_tab = st.tabs(["Symptoms", "Diagnoses"])
 
-        for idx, symptom in enumerate(st.session_state.symptoms):
-            text_col, source_col, delete_col = st.columns([6, 1, 1])
-            text_col.markdown(f"**{symptom['text']}**")
+    with symptoms_tab:
+        render_results_panel(
+            state_key="symptoms",
+            source_text_key="original_text",
+            expanded_key="symptom_expanded_index",
+            panel_title="Extracted Symptoms",
+            item_name="symptom",
+            csv_builder=build_symptom_csv,
+            csv_filename_prefix="symptoms",
+        )
 
-            context = get_source_context(symptom, st.session_state.original_text)
-            if context and source_col.button("📍", key=f"source_{idx}"):
-                st.session_state.expanded_index = None if st.session_state.expanded_index == idx else idx
-
-            if delete_col.button("✕", key=f"delete_{idx}"):
-                st.session_state.symptoms.pop(idx)
-                st.rerun()
-
-            attributes = symptom.get("attributes") or {}
-            attr_bits = [f"**{k.replace('_', ' ').title()}:** {v}" for k, v in attributes.items() if v]
-            if attr_bits:
-                st.caption(" · ".join(attr_bits))
-
-            if context and st.session_state.expanded_index == idx:
-                st.markdown(
-                    f"Source: _{context['before']}_ "
-                    f":orange[**{context['highlighted']}**] "
-                    f"_{context['after']}_"
-                )
-
-            st.divider()
-
-        with st.form("add_symptom_form", clear_on_submit=True):
-            add_col, submit_col = st.columns([5, 1])
-            new_symptom_text = add_col.text_input(
-                "Add new symptom", placeholder="Add new symptom...", label_visibility="collapsed"
-            )
-            submitted = submit_col.form_submit_button("Add")
-            if submitted and new_symptom_text.strip():
-                st.session_state.symptoms.append(
-                    {"text": new_symptom_text.strip(), "attributes": {}, "position": None}
-                )
-                st.rerun()
-
-        csv_content = build_csv(st.session_state.symptoms)
-        st.download_button(
-            "Generate Graph (CSV)",
-            data=csv_content,
-            file_name=f"clinical_data_{datetime.now().strftime('%Y-%m-%d')}.csv",
-            mime="text/csv",
-            use_container_width=True,
+    with diagnoses_tab:
+        render_results_panel(
+            state_key="diagnoses",
+            source_text_key="diagnosis_source_text",
+            expanded_key="diagnosis_expanded_index",
+            panel_title="Extracted Diagnoses",
+            item_name="diagnosis",
+            csv_builder=build_diagnosis_csv,
+            csv_filename_prefix="diagnoses",
         )
 
 st.caption("🔐 Data is processed using Google Gemini API")

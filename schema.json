@@ -1,0 +1,450 @@
+{
+  "domain": {
+    "id": "uk-primary-care",
+    "name": "UK Primary Care",
+    "description": "Clinical encounters, patient continuity of care, and care coordination in UK general practice",
+    "tagline": "Patient-centric primary care records",
+    "emoji": "⚕️"
+  },
+  "entity_types": [
+    {
+      "label": "Patient",
+      "pole_type": "PERSON",
+      "subtype": "PATIENT",
+      "color": "#06b6d4",
+      "icon": "user",
+      "properties": [
+        {
+          "name": "nhs_number",
+          "type": "string",
+          "required": true,
+          "unique": true,
+          "description": "10-digit NHS number"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "sex",
+          "type": "string",
+          "enum": ["M", "F", "Other"]
+        },
+        {
+          "name": "registered_gp_practice",
+          "type": "string",
+          "description": "Reference to registered GP practice"
+        }
+      ]
+    },
+    {
+      "label": "Clinician",
+      "pole_type": "PERSON",
+      "subtype": "CLINICIAN",
+      "color": "#14b8a6",
+      "icon": "stethoscope",
+      "properties": [
+        {
+          "name": "clinician_id",
+          "type": "string",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "role",
+          "type": "string",
+          "required": true,
+          "enum": [
+            "GP",
+            "nurse",
+            "pharmacist",
+            "physiotherapist",
+            "mental_health_practitioner",
+            "healthcare_assistant",
+            "consultant"
+          ]
+        },
+        {
+          "name": "registration_number",
+          "type": "string",
+          "description": "GMC/NMC/GPhC registration number"
+        }
+      ]
+    },
+    {
+      "label": "Encounter",
+      "pole_type": "EVENT",
+      "subtype": "CLINICAL_ENCOUNTER",
+      "color": "#f59e0b",
+      "icon": "calendar",
+      "properties": [
+        {
+          "name": "encounter_id",
+          "type": "string",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "encounter_date",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "encounter_type",
+          "type": "string",
+          "required": true,
+          "enum": [
+            "surgery_visit",
+            "telephone",
+            "video_consultation",
+            "home_visit",
+            "hospital_appointment",
+            "emergency_department"
+          ]
+        },
+        {
+          "name": "chief_complaint",
+          "type": "string",
+          "description": "Reason for attendance in patient's words"
+        },
+        {
+          "name": "clinical_notes",
+          "type": "string",
+          "required": true,
+          "description": "Clinician's notes: history, examination, assessment, plan"
+        },
+        {
+          "name": "duration_minutes",
+          "type": "integer"
+        },
+        {
+          "name": "outcome",
+          "type": "string",
+          "enum": [
+            "resolved",
+            "ongoing_management",
+            "referred",
+            "admitted",
+            "discharged_from_hospital"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Presentation",
+      "pole_type": "OBJECT",
+      "subtype": "SYMPTOM_PRESENTATION",
+      "color": "#fb923c",
+      "icon": "alert-circle",
+      "properties": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Symptom or presenting complaint"
+        },
+        {
+          "name": "severity",
+          "type": "string",
+          "enum": ["mild", "moderate", "severe"]
+        },
+        {
+          "name": "duration",
+          "type": "string",
+          "description": "e.g. '3 days', '2 weeks'"
+        }
+      ]
+    },
+    {
+      "label": "Diagnosis",
+      "pole_type": "OBJECT",
+      "subtype": "DIAGNOSIS",
+      "color": "#ef4444",
+      "icon": "heart-pulse",
+      "properties": [
+        {
+          "name": "snomed_code",
+          "type": "string",
+          "required": true,
+          "unique": true,
+          "description": "SNOMED-CT concept ID"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "SNOMED-CT preferred term"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "enum": [
+            "suspected",
+            "confirmed",
+            "resolved",
+            "chronic_ongoing"
+          ]
+        },
+        {
+          "name": "certainty",
+          "type": "string",
+          "enum": ["definite", "probable", "possible"]
+        }
+      ]
+    },
+    {
+      "label": "Medication",
+      "pole_type": "OBJECT",
+      "subtype": "MEDICATION",
+      "color": "#8b5cf6",
+      "icon": "pill",
+      "properties": [
+        {
+          "name": "dm_d_id",
+          "type": "string",
+          "required": true,
+          "unique": true,
+          "description": "DM+D concept ID (UK drug dictionary)"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "drug_class",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "label": "Prescription",
+      "pole_type": "EVENT",
+      "subtype": "PRESCRIPTION",
+      "color": "#8b5cf6",
+      "icon": "prescription",
+      "properties": [
+        {
+          "name": "prescription_id",
+          "type": "string",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "dosage",
+          "type": "string",
+          "required": true,
+          "description": "e.g. '500mg twice daily'"
+        },
+        {
+          "name": "route",
+          "type": "string",
+          "enum": [
+            "oral",
+            "topical",
+            "inhaled",
+            "injection",
+            "other"
+          ]
+        },
+        {
+          "name": "duration",
+          "type": "string",
+          "description": "e.g. '7 days', '3 months'"
+        },
+        {
+          "name": "indication",
+          "type": "string",
+          "description": "Why prescribed"
+        }
+      ]
+    },
+    {
+      "label": "Referral",
+      "pole_type": "EVENT",
+      "subtype": "REFERRAL",
+      "color": "#ec4899",
+      "icon": "send",
+      "properties": [
+        {
+          "name": "referral_id",
+          "type": "string",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "referral_date",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "specialty",
+          "type": "string",
+          "required": true,
+          "description": "e.g. 'Cardiology', 'Mental Health', 'Dermatology'"
+        },
+        {
+          "name": "urgency",
+          "type": "string",
+          "enum": ["routine", "soon", "urgent", "emergency"]
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "description": "Reason for referral"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "enum": [
+            "pending",
+            "accepted",
+            "seen",
+            "completed",
+            "cancelled"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Procedure",
+      "pole_type": "EVENT",
+      "subtype": "PROCEDURE",
+      "color": "#10b981",
+      "icon": "activity",
+      "properties": [
+        {
+          "name": "procedure_id",
+          "type": "string",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "e.g. 'Blood pressure check', 'ECG', 'Blood test'"
+        },
+        {
+          "name": "snomed_code",
+          "type": "string",
+          "description": "SNOMED-CT code if available"
+        },
+        {
+          "name": "result",
+          "type": "string",
+          "description": "Result or findings"
+        }
+      ]
+    },
+    {
+      "label": "Facility",
+      "pole_type": "LOCATION",
+      "subtype": "HEALTHCARE_FACILITY",
+      "color": "#6366f1",
+      "icon": "building",
+      "properties": [
+        {
+          "name": "facility_id",
+          "type": "string",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "facility_type",
+          "type": "string",
+          "enum": ["gp_practice", "hospital", "urgent_care", "emergency_dept"]
+        },
+        {
+          "name": "nhs_code",
+          "type": "string",
+          "description": "ODS code for NHS organisations"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "type": "ATTENDED_ENCOUNTER",
+      "source": "Patient",
+      "target": "Encounter",
+      "description": "Patient attended this encounter"
+    },
+    {
+      "type": "CONDUCTED",
+      "source": "Clinician",
+      "target": "Encounter",
+      "description": "Clinician conducted this encounter"
+    },
+    {
+      "type": "WORKS_AT",
+      "source": "Clinician",
+      "target": "Facility",
+      "description": "Clinician works at this facility"
+    },
+    {
+      "type": "REGISTERED_WITH",
+      "source": "Patient",
+      "target": "Facility",
+      "description": "Patient is registered with this GP practice"
+    },
+    {
+      "type": "PRESENTED_WITH",
+      "source": "Encounter",
+      "target": "Presentation",
+      "description": "Encounter included this symptom/presentation"
+    },
+    {
+      "type": "DIAGNOSED_WITH",
+      "source": "Encounter",
+      "target": "Diagnosis",
+      "description": "Diagnosis identified in this encounter"
+    },
+    {
+      "type": "PRESCRIBED",
+      "source": "Encounter",
+      "target": "Prescription",
+      "description": "Prescription issued at this encounter"
+    },
+    {
+      "type": "FOR_MEDICATION",
+      "source": "Prescription",
+      "target": "Medication",
+      "description": "Prescription is for this medication"
+    },
+    {
+      "type": "REFERRED_FROM",
+      "source": "Encounter",
+      "target": "Referral",
+      "description": "Referral created from this encounter"
+    },
+    {
+      "type": "INCLUDED_PROCEDURE",
+      "source": "Encounter",
+      "target": "Procedure",
+      "description": "Procedure/test performed in this encounter"
+    },
+    {
+      "type": "OCCURRED_AT",
+      "source": "Encounter",
+      "target": "Facility",
+      "description": "Encounter took place at this facility"
+    }
+  ]
+}
