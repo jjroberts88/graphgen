@@ -172,11 +172,31 @@ def _to_entity(item: dict, idx: int, id_prefix: str, entity_type: str) -> dict:
     }
 
 
-def build_entities_payload(symptoms: list[dict], diagnoses: list[dict]) -> dict:
-    entities = [
-        _to_entity(item, idx, "presentation", "Presentation") for idx, item in enumerate(symptoms, 1)
-    ] + [_to_entity(item, idx, "diagnosis", "Diagnosis") for idx, item in enumerate(diagnoses, 1)]
-    return {"entities": entities, "relationships": []}
+def build_entities_payload(
+    symptoms: list[dict], diagnoses: list[dict], encounter_datetime: datetime, clinical_notes: str
+) -> dict:
+    encounter_id = "encounter-1"
+    encounter = {
+        "id": encounter_id,
+        "text": clinical_notes,
+        "type": "Encounter",
+        "start": 0,
+        "end": len(clinical_notes),
+        "properties": {
+            "encounter_date": encounter_datetime.isoformat(),
+            "clinical_notes": clinical_notes,
+        },
+    }
+    presentations = [_to_entity(item, idx, "presentation", "Presentation") for idx, item in enumerate(symptoms, 1)]
+    diagnosis_entities = [_to_entity(item, idx, "diagnosis", "Diagnosis") for idx, item in enumerate(diagnoses, 1)]
+
+    relationships = [
+        {"type": "PRESENTED_WITH", "source": encounter_id, "target": entity["id"]} for entity in presentations
+    ] + [
+        {"type": "DIAGNOSED_WITH", "source": encounter_id, "target": entity["id"]} for entity in diagnosis_entities
+    ]
+
+    return {"entities": [encounter] + presentations + diagnosis_entities, "relationships": relationships}
 
 
 def get_source_context(symptom: dict, original_text: str, padding: int = 100):
@@ -256,6 +276,8 @@ if "diagnosis_expanded_index" not in st.session_state:
     st.session_state.diagnosis_expanded_index = None
 if "error" not in st.session_state:
     st.session_state.error = ""
+if "encounter_datetime" not in st.session_state:
+    st.session_state.encounter_datetime = None
 
 st.title("🏥 Clinical Data Entry")
 st.caption("Enter clinical information and extract symptoms")
@@ -303,6 +325,7 @@ with right:
             st.session_state.error = ""
             with st.spinner("Analysing..."):
                 try:
+                    st.session_state.encounter_datetime = datetime.now()
                     st.session_state.symptoms = run_extraction(
                         all_text, model_id, EXTRACTION_PROMPT, EXTRACTION_EXAMPLES
                     )
@@ -343,7 +366,12 @@ with right:
         )
 
     if st.session_state.symptoms or st.session_state.diagnoses:
-        payload = build_entities_payload(st.session_state.symptoms, st.session_state.diagnoses)
+        payload = build_entities_payload(
+            st.session_state.symptoms,
+            st.session_state.diagnoses,
+            st.session_state.encounter_datetime,
+            st.session_state.original_text,
+        )
         st.download_button(
             "Generate Graph (JSON)",
             data=json.dumps(payload, indent=2),

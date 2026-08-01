@@ -5,10 +5,10 @@ A Streamlit application for extracting medical symptoms from clinical consultati
 ## Features
 
 - **Structured data entry**: History, Examination, Diagnosis, and Plan fields
-- **LLM-powered extraction**: Automatically extracts symptoms from clinical text
-- **Interactive results**: Edit, delete, and add symptoms to the extracted results
-- **Source highlighting**: View exactly where each symptom was found in the original text
-- **CSV export**: Export reviewed symptoms as CSV for further analysis or Neo4j ingestion
+- **LLM-powered extraction**: Automatically extracts symptoms and diagnoses from clinical text
+- **Interactive results**: Edit, delete, and add symptoms/diagnoses to the extracted results
+- **Source highlighting**: View exactly where each item was found in the original text
+- **JSON export**: Export reviewed symptoms and diagnoses as a JSON entities/relationships payload for Neo4j ingestion
 
 ## Setup
 
@@ -50,14 +50,14 @@ The app runs on `http://localhost:8501`
    - Diagnosis
    - Plan
 
-2. **Click "Analyse"** to extract symptoms using the LLM
+2. **Click "Analyse"** to extract symptoms and diagnoses using the LLM
 
-3. **Review and edit** the results on the right panel:
-   - Click the 📍 icon to see where each symptom appears in the original text
-   - Use ✕ to delete unwanted symptoms
-   - Type to add new symptoms
+3. **Review and edit** the results in the Symptoms/Diagnoses tabs on the right panel:
+   - Click the 📍 icon to see where each item appears in the original text
+   - Use ✕ to delete unwanted items
+   - Type to add new items
 
-4. **Click "Generate Graph (CSV)"** to download the reviewed symptoms
+4. **Click "Generate Graph (JSON)"** to download the reviewed symptoms and diagnoses
 
 ## Security Notes
 
@@ -69,8 +69,9 @@ The app runs on `http://localhost:8501`
 
 ```
 GraphGen/
-├── streamlit_app.py            # Main application (UI + extraction + CSV export)
+├── streamlit_app.py            # Main application (UI + extraction + JSON export)
 ├── requirements-streamlit.txt  # App dependencies
+├── schema.json                 # Neo4j graph entity/relationship schema referenced by the JSON export
 ├── .env.example                # Environment template
 └── .gitignore                  # Git exclusions
 ```
