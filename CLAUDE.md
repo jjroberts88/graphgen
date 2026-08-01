@@ -36,9 +36,17 @@ Everything lives in `streamlit_app.py`, structured as:
 - **Extraction config** — two prompt/few-shot-example pairs passed to `langextract`:
   `EXTRACTION_PROMPT`/`EXTRACTION_EXAMPLES` for symptoms, and
   `DIAGNOSIS_EXTRACTION_PROMPT`/`DIAGNOSIS_EXTRACTION_EXAMPLES` for diagnoses (the latter mirrors
-  the `status`/`certainty` enums on the `Diagnosis` entity in `schema.json`, and runs only against
-  the Diagnosis field rather than the combined consultation text). If extraction quality needs
-  tuning, this is where it happens.
+  the `status`/`certainty` enums on the `Diagnosis` entity in `schema.json`). Both extractions run
+  against a single input field rather than the combined consultation text: symptoms against
+  History only, diagnoses against Diagnosis only. Symptom extraction is normalized: the prompt
+  instructs the LLM to extract only the canonical symptom name (`"cough"`, not `"productive cough
+  with green sputum"`) as `extraction_text`, pushing qualifying detail not already captured by
+  `body_part`/`severity`/`duration` into a `descriptor` attribute instead — this keeps the
+  `Presentation` node's `text` consistent across consultations that describe the same symptom
+  differently, rather than producing a different-looking node per phrasing. `descriptor` isn't a
+  property `schema.json` defines on `Presentation` (only `name`/`severity`/`duration` are), same
+  as the pre-existing `body_part` attribute — extra properties pass through unvalidated. If
+  extraction quality needs tuning, this is where it happens.
 - **`run_extraction(text, model_id, prompt, examples)`** — calls `lx.extract(...)` and normalizes
   the result into a list of `{text, attributes, position}` dicts. `position` holds character
   offsets (`char_interval.start_pos`/`end_pos`) into the original text, used later for source
@@ -70,10 +78,14 @@ Everything lives in `streamlit_app.py`, structured as:
   Diagnoses tabs rather than duplicated.
 - **UI section** (bottom of the file) — three-column layout (History/Examination/Diagnosis/Plan
   inputs → Analyse button → tabbed results panel with separate Symptoms and Diagnoses tabs). All
-  app state (`symptoms`, `original_text`, `symptom_expanded_index`, `diagnoses`,
-  `diagnosis_source_text`, `diagnosis_expanded_index`, `error`, `encounter_datetime`) lives in
-  `st.session_state`, which is scoped per browser session. This was a deliberate fix for a bug in
-  the old FastAPI backend, which stored the last extraction result as attributes on the global
+  app state (`symptoms`, `original_text`, `symptom_source_text`, `symptom_expanded_index`,
+  `diagnoses`, `diagnosis_source_text`, `diagnosis_expanded_index`, `error`, `encounter_datetime`)
+  lives in `st.session_state`, which is scoped per browser session. `original_text` (the combined
+  History/Examination/Diagnosis/Plan text) is kept only for the Encounter's `clinical_notes`
+  property — `symptom_source_text` (History only) and `diagnosis_source_text` (Diagnosis only) are
+  what each results panel's "view source" (📍) highlighting is actually reconstructed from, so
+  offsets line up with the field each extraction pass ran against. This was a deliberate fix for a
+  bug in the old FastAPI backend, which stored the last extraction result as attributes on the global
   `app` object — safe for one user, broken for concurrent ones. Don't reintroduce
   module-level/global mutable state for request data.
 - **`SAMPLE_CASES`** / sidebar loader — a dict of sample case name → `{history, examination,

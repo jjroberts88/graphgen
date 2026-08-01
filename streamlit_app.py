@@ -21,46 +21,58 @@ API_KEY = os.getenv("LANGEXTRACT_API_KEY")
 
 DEFAULT_MODEL_ID = "gemini-3.6-flash"
 
-EXTRACTION_PROMPT = """Extract all medical symptoms mentioned in this clinical consultation.
-For each symptom, identify:
-- The exact symptom name as mentioned in the text
-- The body part or area affected (if mentioned)
-- The severity or duration (if mentioned)
+EXTRACTION_PROMPT = """Extract all medical symptoms mentioned in this patient history.
 
-Use exact text from the document. Do not paraphrase or combine symptoms.
+For each symptom, extract only its core/canonical name, e.g. "cough" (not "productive
+cough with green sputum"), "headache" (not "severe left-sided throbbing headache"). Do not
+fold descriptive detail, qualifiers, or associated features into the symptom name itself,
+and do not combine multiple distinct symptoms into one extraction.
+
+For each symptom, identify:
+- The core symptom name (canonical form, not the full descriptive phrase)
+- The body part or area affected (if mentioned)
+- The severity (if mentioned)
+- The duration (if mentioned)
+- The descriptor: any other qualifying detail from the text not already captured above,
+  e.g. colour, character, quality, or associated features ("productive, green sputum",
+  "throbbing", "worse on movement")
+
 List symptoms in the order they appear in the text."""
 
 EXTRACTION_EXAMPLES = [
     lx.data.ExampleData(
-        text="""Patient reports persistent headache that started 2 days ago.
-        She also complains of mild fever and body aches. Additionally,
-        the patient has noticed a sore throat.""",
+        text="""Patient reports persistent headache that started 2 days ago, throbbing
+        and worse on movement. She also complains of mild fever and a productive cough
+        with green sputum. Additionally, the patient has noticed a sore throat.""",
         extractions=[
             lx.data.Extraction(
                 extraction_class="symptom",
-                extraction_text="persistent headache",
+                extraction_text="headache",
                 attributes={
                     "body_part": "head",
                     "severity": "persistent",
                     "duration": "started 2 days ago",
+                    "descriptor": "throbbing, worse on movement",
                 },
             ),
             lx.data.Extraction(
                 extraction_class="symptom",
-                extraction_text="mild fever",
+                extraction_text="fever",
                 attributes={
                     "body_part": "systemic",
                     "severity": "mild",
                     "duration": None,
+                    "descriptor": None,
                 },
             ),
             lx.data.Extraction(
                 extraction_class="symptom",
-                extraction_text="body aches",
+                extraction_text="cough",
                 attributes={
-                    "body_part": "body",
+                    "body_part": "chest",
                     "severity": None,
                     "duration": None,
+                    "descriptor": "productive, green sputum",
                 },
             ),
             lx.data.Extraction(
@@ -70,6 +82,7 @@ EXTRACTION_EXAMPLES = [
                     "body_part": "throat",
                     "severity": None,
                     "duration": None,
+                    "descriptor": None,
                 },
             ),
         ],
@@ -245,10 +258,9 @@ def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> lis
 # save_encounter_to_graph). `type` values ("Presentation", "Diagnosis") are
 # schema.json entity labels, used directly as Neo4j node labels there — so
 # they must stay capitalized exactly as in schema.json.
-# No Patient/Encounter wrapper here (GraphGen doesn't collect that metadata),
-# and no relationships between entities: schema.json only defines
-# Encounter-scoped relationships (e.g. Encounter-[PRESENTED_WITH]->Presentation),
-# and there's no Encounter node in this app's scope to anchor them to.
+# Still no Patient/Clinician/Facility wrapper (GraphGen doesn't collect that
+# metadata); build_entities_payload() below adds the Encounter anchor node
+# and the Encounter-[PRESENTED_WITH/DIAGNOSED_WITH]->entity relationships.
 def _to_entity(item: dict, idx: int, id_prefix: str, entity_type: str) -> dict:
     position = item.get("position") or {}
     return {
@@ -355,6 +367,8 @@ if "symptoms" not in st.session_state:
     st.session_state.symptoms = []
 if "original_text" not in st.session_state:
     st.session_state.original_text = ""
+if "symptom_source_text" not in st.session_state:
+    st.session_state.symptom_source_text = ""
 if "symptom_expanded_index" not in st.session_state:
     st.session_state.symptom_expanded_index = None
 if "diagnoses" not in st.session_state:
@@ -427,10 +441,16 @@ with right:
             with st.spinner("Analysing..."):
                 try:
                     st.session_state.encounter_datetime = datetime.now()
-                    st.session_state.symptoms = run_extraction(
-                        all_text, model_id, EXTRACTION_PROMPT, EXTRACTION_EXAMPLES
-                    )
                     st.session_state.original_text = all_text
+
+                    if history.strip():
+                        st.session_state.symptoms = run_extraction(
+                            history, model_id, EXTRACTION_PROMPT, EXTRACTION_EXAMPLES
+                        )
+                        st.session_state.symptom_source_text = history
+                    else:
+                        st.session_state.symptoms = []
+                        st.session_state.symptom_source_text = ""
                     st.session_state.symptom_expanded_index = None
 
                     if diagnosis.strip():
@@ -451,7 +471,7 @@ with right:
     with symptoms_tab:
         render_results_panel(
             state_key="symptoms",
-            source_text_key="original_text",
+            source_text_key="symptom_source_text",
             expanded_key="symptom_expanded_index",
             panel_title="Extracted Symptoms",
             item_name="symptom",
