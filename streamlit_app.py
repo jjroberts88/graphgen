@@ -124,6 +124,95 @@ DIAGNOSIS_EXTRACTION_EXAMPLES = [
 ]
 
 
+SAMPLE_CASES = {
+    "Community-acquired pneumonia": {
+        "history": (
+            "68-year-old male presents with a 3-day history of productive cough with "
+            "green sputum, fever, and increasing shortness of breath. He describes "
+            "right-sided pleuritic chest pain that worsens on deep inspiration. Reports "
+            "feeling generally unwell with reduced appetite. No recent travel. Past "
+            "medical history of type 2 diabetes."
+        ),
+        "examination": (
+            "Temperature 38.6C, respiratory rate 24/min, oxygen saturation 93% on room "
+            "air, heart rate 104 bpm, blood pressure 118/76. Reduced breath sounds and "
+            "coarse crackles at the right lower lung base. Dullness to percussion over "
+            "the same area. No peripheral oedema."
+        ),
+        "diagnosis": (
+            "Likely community-acquired pneumonia, probable diagnosis pending chest "
+            "X-ray. Type 2 diabetes, chronic, well controlled."
+        ),
+        "plan": (
+            "Start empirical oral antibiotics (amoxicillin), arrange chest X-ray and "
+            "bloods including CRP and blood cultures. Advise safety-net for worsening "
+            "breathlessness. Review in 48 hours or sooner if deteriorating."
+        ),
+    },
+    "Migraine": {
+        "history": (
+            "27-year-old female with a 1-day history of severe, throbbing left-sided "
+            "headache associated with photophobia, phonophobia, and nausea. Reports "
+            "similar episodes roughly once a month, often triggered by poor sleep and "
+            "stress. No visual aura this episode. No head injury."
+        ),
+        "examination": (
+            "Alert and oriented, in obvious discomfort. Neurological examination "
+            "including cranial nerves, tone, power, reflexes, and coordination all "
+            "normal. No neck stiffness or photophobia signs on examination. Fundoscopy "
+            "normal."
+        ),
+        "diagnosis": ("Migraine without aura, recurrent, probable diagnosis based on history."),
+        "plan": (
+            "Advise rest in a dark, quiet room, hydration, and simple analgesia plus "
+            "an antiemetic if needed. Discuss migraine triggers and consider "
+            "prophylaxis if frequency increases. Provide headache diary and follow-up "
+            "in 4 weeks."
+        ),
+    },
+    "Suspected appendicitis": {
+        "history": (
+            "19-year-old male with a 12-hour history of central abdominal pain that "
+            "has migrated to the right iliac fossa. Associated with nausea, one "
+            "episode of vomiting, and loss of appetite. No diarrhoea. Pain worse on "
+            "movement and coughing."
+        ),
+        "examination": (
+            "Temperature 37.8C, heart rate 96 bpm. Abdomen tender in the right iliac "
+            "fossa with guarding and rebound tenderness. Rovsing's sign positive. "
+            "Bowel sounds present. No masses palpable."
+        ),
+        "diagnosis": (
+            "Query early appendicitis - suspected, referred for surgical review. "
+            "Differential includes mesenteric adenitis."
+        ),
+        "plan": (
+            "Urgent surgical referral, keep nil by mouth, IV fluids, bloods including "
+            "FBC and CRP, and urgent abdominal ultrasound or CT if diagnosis unclear. "
+            "Analgesia as required."
+        ),
+    },
+    "Hypertension follow-up": {
+        "history": (
+            "54-year-old female attending for routine hypertension review. Feels well "
+            "with no headaches, chest pain, or visual disturbance. Reports good "
+            "compliance with current antihypertensive medication. No new symptoms "
+            "since last visit."
+        ),
+        "examination": (
+            "Blood pressure 138/86 (repeat 136/84), heart rate 72 bpm regular. Heart "
+            "sounds normal, chest clear, no peripheral oedema. BMI 27."
+        ),
+        "diagnosis": ("Chronic hypertension, well controlled on current medication."),
+        "plan": (
+            "Continue current antihypertensive regimen, reinforce lifestyle advice on "
+            "diet, exercise, and salt intake. Routine bloods (U&E) and repeat review "
+            "in 6 months."
+        ),
+    },
+}
+
+
 def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> list[dict]:
     result = lx.extract(
         text_or_documents=text,
@@ -291,6 +380,18 @@ if not API_KEY:
 
 if st.session_state.error:
     st.error(st.session_state.error)
+
+with st.sidebar:
+    st.subheader("Sample Cases")
+    st.caption("Load prepopulated case details into the entry fields.")
+    selected_case = st.selectbox("Choose a sample case", options=list(SAMPLE_CASES.keys()))
+    if st.button("Load Sample Case", use_container_width=True):
+        case = SAMPLE_CASES[selected_case]
+        st.session_state.history = case["history"]
+        st.session_state.examination = case["examination"]
+        st.session_state.diagnosis = case["diagnosis"]
+        st.session_state.plan = case["plan"]
+        st.rerun()
 
 left, center, right = st.columns([2, 0.7, 2.3])
 
