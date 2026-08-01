@@ -1,10 +1,10 @@
 # Clinical Consultation Analyzer
 
-A web-based application for extracting medical symptoms from clinical consultation notes using LLMs.
+A Streamlit application for extracting medical symptoms from clinical consultation notes using LLMs.
 
 ## Features
 
-- **Split-screen interface**: Clinical data entry on the left, results on the right
+- **Structured data entry**: History, Examination, Diagnosis, and Plan fields
 - **LLM-powered extraction**: Automatically extracts symptoms from clinical text
 - **Interactive results**: Edit, delete, and add symptoms to the extracted results
 - **Source highlighting**: View exactly where each symptom was found in the original text
@@ -14,7 +14,6 @@ A web-based application for extracting medical symptoms from clinical consultati
 
 ### Prerequisites
 - Python 3.9+
-- Node.js 16+
 - LangExtract API key
 
 ### 1. Environment Setup
@@ -29,27 +28,19 @@ Edit `.env` and add your credentials:
 LANGEXTRACT_API_KEY=your_api_key_here
 ```
 
-### 2. Backend Setup
+### 2. Install dependencies
 
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
+pip install -r requirements-streamlit.txt
 ```
 
-Backend runs on `http://localhost:8000`
-
-### 3. Frontend Setup
+### 3. Run the app
 
 ```bash
-cd frontend
-npm install
-npm start
+streamlit run streamlit_app.py
 ```
 
-Frontend runs on `http://localhost:3000`
+The app runs on `http://localhost:8501`
 
 ## Usage
 
@@ -68,12 +59,6 @@ Frontend runs on `http://localhost:3000`
 
 4. **Click "Generate Graph (CSV)"** to download the reviewed symptoms
 
-## API Endpoints
-
-- `POST /extract` - Extract symptoms from clinical text
-- `POST /export-csv` - Export symptoms as CSV
-- `POST /visualize` - Generate HTML visualization of extracted symptoms
-
 ## Security Notes
 
 - **Never commit `.env` files** - Use `.env.example` as a template
@@ -84,12 +69,8 @@ Frontend runs on `http://localhost:3000`
 
 ```
 GraphGen/
-├── backend/          # FastAPI backend
-│   └── main.py      # Main application
-├── frontend/        # React frontend
-│   └── src/
-│       ├── App.js   # Main component
-│       └── App.css  # Styles
-├── .env.example     # Environment template
-└── .gitignore       # Git exclusions
+├── streamlit_app.py            # Main application (UI + extraction + CSV export)
+├── requirements-streamlit.txt  # App dependencies
+├── .env.example                # Environment template
+└── .gitignore                  # Git exclusions
 ```

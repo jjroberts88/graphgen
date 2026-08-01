@@ -1,1 +1,0 @@
-{"extractions": [{"extraction_class": "person", "extraction_text": "Juliet", "char_interval": {"start_pos": 0, "end_pos": 6}, "alignment_status": "match_exact", "extraction_index": 1, "group_index": 0, "description": null, "attributes": {"emotion": "sadly"}}], "text": "Juliet gazed sadly at the stars, longing for Romeo.", "document_id": "doc_47dc3ca1"}
