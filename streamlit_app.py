@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Streamlit app for clinical consultation symptom extraction."""
 
-import csv
+import json
 import os
 from datetime import datetime
-from io import StringIO
 from pathlib import Path
 
 import langextract as lx
@@ -152,28 +151,32 @@ def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> lis
     return items
 
 
-def build_csv(items: list[dict], id_prefix: str, text_field: str, attribute_fields: list[str]) -> str:
-    output = StringIO()
-    headers = [f"{id_prefix}_id", text_field, *attribute_fields, "timestamp"]
-    writer = csv.DictWriter(output, fieldnames=headers)
-    writer.writeheader()
+# Matches the Entity/Relationship contract used by cliniprompt-graph's Neo4j
+# ingestion (backend/models.py Entity + Relationship, consumed by graph.py's
+# save_encounter_to_graph). `type` values ("Presentation", "Diagnosis") are
+# schema.json entity labels, used directly as Neo4j node labels there — so
+# they must stay capitalized exactly as in schema.json.
+# No Patient/Encounter wrapper here (GraphGen doesn't collect that metadata),
+# and no relationships between entities: schema.json only defines
+# Encounter-scoped relationships (e.g. Encounter-[PRESENTED_WITH]->Presentation),
+# and there's no Encounter node in this app's scope to anchor them to.
+def _to_entity(item: dict, idx: int, id_prefix: str, entity_type: str) -> dict:
+    position = item.get("position") or {}
+    return {
+        "id": f"{id_prefix}-{idx}",
+        "text": item.get("text", ""),
+        "type": entity_type,
+        "start": position.get("start", 0),
+        "end": position.get("end", 0),
+        "properties": item.get("attributes") or {},
+    }
 
-    timestamp = datetime.now().isoformat()
-    for idx, item in enumerate(items, 1):
-        attributes = item.get("attributes", {})
-        row = {f"{id_prefix}_id": f"{id_prefix}_{idx}", text_field: item.get("text", ""), "timestamp": timestamp}
-        for field in attribute_fields:
-            row[field] = attributes.get(field)
-        writer.writerow(row)
-    return output.getvalue()
 
-
-def build_symptom_csv(symptoms: list[dict]) -> str:
-    return build_csv(symptoms, "symptom", "symptom_text", ["body_part", "severity", "duration"])
-
-
-def build_diagnosis_csv(diagnoses: list[dict]) -> str:
-    return build_csv(diagnoses, "diagnosis", "diagnosis_text", ["status", "certainty"])
+def build_entities_payload(symptoms: list[dict], diagnoses: list[dict]) -> dict:
+    entities = [
+        _to_entity(item, idx, "presentation", "Presentation") for idx, item in enumerate(symptoms, 1)
+    ] + [_to_entity(item, idx, "diagnosis", "Diagnosis") for idx, item in enumerate(diagnoses, 1)]
+    return {"entities": entities, "relationships": []}
 
 
 def get_source_context(symptom: dict, original_text: str, padding: int = 100):
@@ -192,7 +195,7 @@ def get_source_context(symptom: dict, original_text: str, padding: int = 100):
     }
 
 
-def render_results_panel(state_key, source_text_key, expanded_key, panel_title, item_name, csv_builder, csv_filename_prefix):
+def render_results_panel(state_key, source_text_key, expanded_key, panel_title, item_name):
     items = st.session_state[state_key]
     if not items:
         st.info(f'Click "Analyse" to extract {item_name}s from the clinical data')
@@ -235,16 +238,6 @@ def render_results_panel(state_key, source_text_key, expanded_key, panel_title, 
         if submitted and new_text.strip():
             st.session_state[state_key].append({"text": new_text.strip(), "attributes": {}, "position": None})
             st.rerun()
-
-    csv_content = csv_builder(items)
-    st.download_button(
-        "Generate Graph (CSV)",
-        data=csv_content,
-        file_name=f"{csv_filename_prefix}_{datetime.now().strftime('%Y-%m-%d')}.csv",
-        mime="text/csv",
-        use_container_width=True,
-        key=f"download_{state_key}",
-    )
 
 
 st.set_page_config(page_title="Clinical Consultation Analyzer", page_icon="🏥", layout="wide")
@@ -338,8 +331,6 @@ with right:
             expanded_key="symptom_expanded_index",
             panel_title="Extracted Symptoms",
             item_name="symptom",
-            csv_builder=build_symptom_csv,
-            csv_filename_prefix="symptoms",
         )
 
     with diagnoses_tab:
@@ -349,8 +340,16 @@ with right:
             expanded_key="diagnosis_expanded_index",
             panel_title="Extracted Diagnoses",
             item_name="diagnosis",
-            csv_builder=build_diagnosis_csv,
-            csv_filename_prefix="diagnoses",
+        )
+
+    if st.session_state.symptoms or st.session_state.diagnoses:
+        payload = build_entities_payload(st.session_state.symptoms, st.session_state.diagnoses)
+        st.download_button(
+            "Generate Graph (JSON)",
+            data=json.dumps(payload, indent=2),
+            file_name=f"clinical_graph_{datetime.now().strftime('%Y-%m-%d')}.json",
+            mime="application/json",
+            use_container_width=True,
         )
 
 st.caption("🔐 Data is processed using Google Gemini API")
