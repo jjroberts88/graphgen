@@ -137,6 +137,90 @@ DIAGNOSIS_EXTRACTION_EXAMPLES = [
 ]
 
 
+
+# Mirrors the flat-per-mention shape used for diagnoses above, rather than the
+# two-node Prescription->Medication split defined in schema.json (Prescription
+# holds dosage/route/duration/indication, Medication holds the drug concept
+# with a unique dm_d_id). Flattening keeps this extraction on the same
+# 1-extraction-to-1-entity pattern as symptoms/diagnoses; dosage/route/
+# duration/indication become attributes on a single Medication entity instead
+# of a separate linked Prescription entity. Runs against the Plan field only.
+MEDICATION_EXTRACTION_PROMPT = """Extract all medications prescribed or recommended in this treatment plan.
+
+For each medication, extract only its core/canonical drug name, e.g. "amoxicillin" (not
+"empirical oral antibiotics (amoxicillin)"). Do not combine multiple distinct medications
+into one extraction.
+
+For each medication, identify the following, using only what is explicitly stated in the text
+for that medication. Do not infer, guess, or carry over a value from context, and never copy one
+field's value into another field:
+- The dosage: the amount and/or frequency, e.g. "500mg three times daily". Leave blank if no
+  dosage is stated.
+- The route: oral, topical, inhaled, injection, or other. Leave blank unless an explicit word
+  in the text states the route (e.g. "topically", "inhaled", "IV", "cream applied to").
+- The duration: how long the medication should be taken for, e.g. "7 days". Leave blank if no
+  duration is stated. Duration is how long the course runs, not how often it's taken.
+- The indication: the reason for prescribing, stated in the text, e.g. "for pain". Leave blank
+  if no reason is given — do not guess a clinical rationale.
+
+When a field is not explicitly stated for a given medication, leave it blank. A blank field is
+correct and expected more often than not — do not fill it with a plausible-sounding guess.
+
+Use exact text from the document for the drug name. Do not paraphrase or combine
+medications. List medications in the order they appear in the text."""
+
+MEDICATION_EXTRACTION_EXAMPLES = [
+    lx.data.ExampleData(
+        text="""Start amoxicillin 500mg three times daily for 7 days for suspected chest
+        infection. Continue paracetamol 1g four times daily as required for pain. Apply
+        hydrocortisone cream topically twice daily to the affected area. Continue metformin
+        as before.""",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="medication",
+                extraction_text="amoxicillin",
+                attributes={
+                    "dosage": "500mg three times daily",
+                    "route": "oral",
+                    "duration": "7 days",
+                    "indication": "suspected chest infection",
+                },
+            ),
+            lx.data.Extraction(
+                extraction_class="medication",
+                extraction_text="paracetamol",
+                attributes={
+                    "dosage": "1g four times daily as required",
+                    "route": "oral",
+                    "duration": None,
+                    "indication": "pain",
+                },
+            ),
+            lx.data.Extraction(
+                extraction_class="medication",
+                extraction_text="hydrocortisone",
+                attributes={
+                    "dosage": "twice daily",
+                    "route": "topical",
+                    "duration": None,
+                    "indication": None,
+                },
+            ),
+            lx.data.Extraction(
+                extraction_class="medication",
+                extraction_text="metformin",
+                attributes={
+                    "dosage": None,
+                    "route": None,
+                    "duration": None,
+                    "indication": None,
+                },
+            ),
+        ],
+    )
+]
+
+
 SAMPLE_CASES = {
     "Community-acquired pneumonia": {
         "history": (
@@ -255,12 +339,17 @@ def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> lis
 
 # Matches the Entity/Relationship contract used by cliniprompt-graph's Neo4j
 # ingestion (backend/models.py Entity + Relationship, consumed by graph.py's
-# save_encounter_to_graph). `type` values ("Presentation", "Diagnosis") are
-# schema.json entity labels, used directly as Neo4j node labels there — so
-# they must stay capitalized exactly as in schema.json.
+# save_encounter_to_graph). `type` values ("Presentation", "Diagnosis",
+# "Medication") are schema.json entity labels, used directly as Neo4j node
+# labels there — so they must stay capitalized exactly as in schema.json.
+# Medication is flattened onto the Encounter-[PRESCRIBED]->Medication edge
+# rather than schema.json's Encounter->Prescription->Medication chain (see
+# MEDICATION_EXTRACTION_PROMPT above) — the Prescription node and its
+# FOR_MEDICATION relationship are not produced by this app.
 # Still no Patient/Clinician/Facility wrapper (GraphGen doesn't collect that
 # metadata); build_entities_payload() below adds the Encounter anchor node
-# and the Encounter-[PRESENTED_WITH/DIAGNOSED_WITH]->entity relationships.
+# and the Encounter-[PRESENTED_WITH/DIAGNOSED_WITH/PRESCRIBED]->entity
+# relationships.
 def _to_entity(item: dict, idx: int, id_prefix: str, entity_type: str) -> dict:
     position = item.get("position") or {}
     return {
@@ -274,7 +363,11 @@ def _to_entity(item: dict, idx: int, id_prefix: str, entity_type: str) -> dict:
 
 
 def build_entities_payload(
-    symptoms: list[dict], diagnoses: list[dict], encounter_datetime: datetime, clinical_notes: str
+    symptoms: list[dict],
+    diagnoses: list[dict],
+    medications: list[dict],
+    encounter_datetime: datetime,
+    clinical_notes: str,
 ) -> dict:
     encounter_id = "encounter-1"
     encounter = {
@@ -290,14 +383,20 @@ def build_entities_payload(
     }
     presentations = [_to_entity(item, idx, "presentation", "Presentation") for idx, item in enumerate(symptoms, 1)]
     diagnosis_entities = [_to_entity(item, idx, "diagnosis", "Diagnosis") for idx, item in enumerate(diagnoses, 1)]
-
-    relationships = [
-        {"type": "PRESENTED_WITH", "source": encounter_id, "target": entity["id"]} for entity in presentations
-    ] + [
-        {"type": "DIAGNOSED_WITH", "source": encounter_id, "target": entity["id"]} for entity in diagnosis_entities
+    medication_entities = [
+        _to_entity(item, idx, "medication", "Medication") for idx, item in enumerate(medications, 1)
     ]
 
-    return {"entities": [encounter] + presentations + diagnosis_entities, "relationships": relationships}
+    relationships = (
+        [{"type": "PRESENTED_WITH", "source": encounter_id, "target": entity["id"]} for entity in presentations]
+        + [{"type": "DIAGNOSED_WITH", "source": encounter_id, "target": entity["id"]} for entity in diagnosis_entities]
+        + [{"type": "PRESCRIBED", "source": encounter_id, "target": entity["id"]} for entity in medication_entities]
+    )
+
+    return {
+        "entities": [encounter] + presentations + diagnosis_entities + medication_entities,
+        "relationships": relationships,
+    }
 
 
 def get_source_context(symptom: dict, original_text: str, padding: int = 100):
@@ -377,6 +476,12 @@ if "diagnosis_source_text" not in st.session_state:
     st.session_state.diagnosis_source_text = ""
 if "diagnosis_expanded_index" not in st.session_state:
     st.session_state.diagnosis_expanded_index = None
+if "medications" not in st.session_state:
+    st.session_state.medications = []
+if "medication_source_text" not in st.session_state:
+    st.session_state.medication_source_text = ""
+if "medication_expanded_index" not in st.session_state:
+    st.session_state.medication_expanded_index = None
 if "error" not in st.session_state:
     st.session_state.error = ""
 if "encounter_datetime" not in st.session_state:
@@ -462,11 +567,21 @@ with right:
                         st.session_state.diagnoses = []
                         st.session_state.diagnosis_source_text = ""
                     st.session_state.diagnosis_expanded_index = None
+
+                    if plan.strip():
+                        st.session_state.medications = run_extraction(
+                            plan, model_id, MEDICATION_EXTRACTION_PROMPT, MEDICATION_EXTRACTION_EXAMPLES
+                        )
+                        st.session_state.medication_source_text = plan
+                    else:
+                        st.session_state.medications = []
+                        st.session_state.medication_source_text = ""
+                    st.session_state.medication_expanded_index = None
                 except Exception as e:
                     st.session_state.error = f"Failed to analyse: {e}"
             st.rerun()
 
-    symptoms_tab, diagnoses_tab = st.tabs(["Symptoms", "Diagnoses"])
+    symptoms_tab, diagnoses_tab, medications_tab = st.tabs(["Symptoms", "Diagnoses", "Medications"])
 
     with symptoms_tab:
         render_results_panel(
@@ -486,10 +601,20 @@ with right:
             item_name="diagnosis",
         )
 
-    if st.session_state.symptoms or st.session_state.diagnoses:
+    with medications_tab:
+        render_results_panel(
+            state_key="medications",
+            source_text_key="medication_source_text",
+            expanded_key="medication_expanded_index",
+            panel_title="Extracted Medications",
+            item_name="medication",
+        )
+
+    if st.session_state.symptoms or st.session_state.diagnoses or st.session_state.medications:
         payload = build_entities_payload(
             st.session_state.symptoms,
             st.session_state.diagnoses,
+            st.session_state.medications,
             st.session_state.encounter_datetime,
             st.session_state.original_text,
         )
