@@ -29,6 +29,10 @@ The app calls `load_dotenv()` against the project root on startup, then again ag
 `backend/.env` (`override=False`) — a fallback from the old FastAPI-backend layout. There is no
 `backend/` directory anymore, so that second call is currently a no-op; it's harmless but stale.
 
+`NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD`/`NEO4J_DATABASE` are optional — without them the app
+still works (extraction + JSON export), but the "Push to Neo4j" button and graph visualization
+panel are disabled.
+
 ## Architecture
 
 Everything lives in `streamlit_app.py`, structured as:
@@ -57,15 +61,17 @@ Everything lives in `streamlit_app.py`, structured as:
   highlighting. Generalized over `prompt`/`examples` so it's reused for the symptom, diagnosis,
   and medication passes.
 - **`build_entities_payload(symptoms, diagnoses, medications, encounter_datetime,
-  clinical_notes)`** / **`_to_entity(...)`** — format symptoms, diagnoses, and medications into a
-  JSON `{entities, relationships}` payload matching the Entity/Relationship contract used by the
-  separate `cliniprompt-graph` project's Neo4j ingestion. Entity `type` values (`"Encounter"`,
-  `"Presentation"`, `"Diagnosis"`, `"Medication"`) are `schema.json` entity labels used directly as
-  Neo4j node labels there, so they must stay capitalized exactly as in `schema.json`. Every
-  payload has exactly one `Encounter` entity (id `"encounter-1"`) acting as the anchor node — its
-  `encounter_date` property is captured as `datetime.now()` at the moment "Analyse" is clicked
-  (stored in `st.session_state.encounter_datetime`), and its `clinical_notes` property is the
-  combined History/Examination/Diagnosis/Plan text (`st.session_state.original_text`), matching
+  clinical_notes, encounter_id)`** / **`_to_entity(...)`** — format symptoms, diagnoses, and
+  medications into a JSON `{entities, relationships}` payload matching the Entity/Relationship
+  contract used by the separate `cliniprompt-graph` project's Neo4j ingestion. Entity `type`
+  values (`"Encounter"`, `"Presentation"`, `"Diagnosis"`, `"Medication"`) are `schema.json` entity
+  labels used directly as Neo4j node labels there, so they must stay capitalized exactly as in
+  `schema.json`. Every payload has exactly one `Encounter` entity acting as the anchor node — its
+  `id` is a `uuid4()` generated once per "Analyse" click and stored in
+  `st.session_state.encounter_id` (passed in by the caller, not generated inside the function),
+  its `encounter_date` property is captured as `datetime.now()` at the same moment (stored in
+  `st.session_state.encounter_datetime`), and its `clinical_notes` property is the combined
+  History/Examination/Diagnosis/Plan text (`st.session_state.original_text`), matching
   `schema.json`'s description of that field. Each Presentation/Diagnosis/Medication entity gets a
   corresponding `PRESENTED_WITH`/`DIAGNOSED_WITH`/`PRESCRIBED` relationship from the encounter.
   Medication is a deliberate schema simplification: `schema.json` models medications as two linked
@@ -79,6 +85,41 @@ Everything lives in `streamlit_app.py`, structured as:
   only populates the Encounter properties it actually collects (`encounter_date`,
   `clinical_notes`); other schema-defined Encounter properties (`encounter_type`,
   `chief_complaint`, `duration_minutes`, `outcome`) are omitted rather than guessed at.
+- **`get_neo4j_driver()` / `push_encounter_to_neo4j(payload)` / `fetch_encounter_subgraph(encounter_id)`**
+  — push the reviewed payload straight into Neo4j Aura and read it back for visualization.
+  `get_neo4j_driver` is an `@st.cache_resource` singleton (one driver for the app's lifetime, per
+  the Neo4j Python driver's guidance); returns `None` if `NEO4J_URI`/`NEO4J_USERNAME`/
+  `NEO4J_PASSWORD` aren't set, which is how the UI decides whether to enable the "Push to Neo4j"
+  button. `push_encounter_to_neo4j` runs `_push_encounter_tx` inside `session.execute_write` (one
+  managed transaction, auto-retried): every entity is a plain `CREATE` (never `MERGE`) — each
+  click of "Push to Neo4j" creates a fresh `Encounter` and its children, with no
+  update-in-place/idempotent-repush behavior, matching a one-shot "review, then save" action.
+  `ENTITY_ID_FIELDS` maps each label to the Neo4j-key property it's created with
+  (`Encounter→encounter_id`, `Diagnosis→snomed_code`, `Medication→dm_d_id`,
+  `Presentation→presentation_id`) — this mirrors `_get_id_field` in
+  `cliniprompt-graph/backend/graph.py`'s `save_encounter_to_graph` (a sibling project checked out
+  locally at `~/Downloads/cliniprompt-graph`, the original consumer this payload shape was
+  designed for) so data pushed from this app stays keyed the same way as data from that one, even
+  though this app doesn't call that FastAPI service directly (it doesn't collect the
+  Patient/Clinician info that service requires, and its `Relationship` model uses
+  `from_entity`/`to_entity` where this app's payload uses `source`/`target`). Since this app never
+  extracts SNOMED/dm+d codes, Diagnosis/Medication nodes get a `f"temp-{uuid4()}"` placeholder id
+  (same convention as the reference implementation) unless `properties` already has one; Presentation
+  has no natural key at all, so it always gets a fresh `uuid4()`. Cypher label/relationship-type
+  strings are validated with `_safe_identifier` (`^[A-Za-z_][A-Za-z0-9_]*$`) before being
+  f-string-interpolated into a query — defense-in-depth even though they only ever come from this
+  app's own fixed vocabulary, never user input. `fetch_encounter_subgraph` re-queries the just-pushed
+  Encounter and its immediate children for the visualization panel below (see next bullet) — it
+  does not read the whole accumulated Aura graph, only the current session's encounter.
+- **Graph visualization** — after a successful push, the result of `fetch_encounter_subgraph` is
+  rendered with `neo4j_viz.neo4j.from_neo4j(result)` (Neo4j's own official Python graph
+  visualization library) and embedded via `st.iframe(vg.render().data, height=500)` (not
+  `st.components.v1.html`, which is deprecated), cached in `st.session_state.graph_viz_html` so it
+  persists across reruns until the next "Analyse" click clears it. `neo4j-viz` was chosen over
+  Neo4j Bloom (a separate
+  standalone app, gated to Aura Business Critical/VDC tiers, not embeddable inline) and over NVL
+  (React/JS, needs an npm/webpack build step — conflicts with this project's single-file,
+  no-build-step design per the note above about not reintroducing a frontend split).
 - **`get_source_context(symptom, original_text, padding=100)`** — reconstructs a highlighted
   snippet around an item's position for the "view source" (📍) toggle, entirely client-side
   from the stored offsets — there's no server-rendered HTML view like the old FastAPI
@@ -91,7 +132,8 @@ Everything lives in `streamlit_app.py`, structured as:
   Medications tabs). All app state (`symptoms`, `original_text`, `symptom_source_text`,
   `symptom_expanded_index`, `diagnoses`, `diagnosis_source_text`, `diagnosis_expanded_index`,
   `medications`, `medication_source_text`, `medication_expanded_index`, `error`,
-  `encounter_datetime`) lives in `st.session_state`, which is scoped per browser session.
+  `encounter_datetime`, `encounter_id`, `neo4j_push_status`, `graph_viz_html`) lives in
+  `st.session_state`, which is scoped per browser session.
   `original_text` (the combined History/Examination/Diagnosis/Plan text) is kept only for the
   Encounter's `clinical_notes` property — `symptom_source_text` (History only),
   `diagnosis_source_text` (Diagnosis only), and `medication_source_text` (Plan only) are what each

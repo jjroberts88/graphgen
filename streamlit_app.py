@@ -3,12 +3,16 @@
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import langextract as lx
 import streamlit as st
 from dotenv import load_dotenv
+from neo4j import GraphDatabase
+from neo4j_viz.neo4j import from_neo4j
 
 # Look for a .env at the project root first, then fall back to backend/.env
 # so the app works without extra setup for anyone who already had the
@@ -18,6 +22,11 @@ load_dotenv(ROOT_DIR / ".env")
 load_dotenv(ROOT_DIR / "backend" / ".env", override=False)
 
 API_KEY = os.getenv("LANGEXTRACT_API_KEY")
+
+NEO4J_URI = os.getenv("NEO4J_URI")
+NEO4J_USERNAME = os.getenv("NEO4J_USERNAME")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
+NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 
 DEFAULT_MODEL_ID = "gemini-3.6-flash"
 
@@ -368,8 +377,8 @@ def build_entities_payload(
     medications: list[dict],
     encounter_datetime: datetime,
     clinical_notes: str,
+    encounter_id: str,
 ) -> dict:
-    encounter_id = "encounter-1"
     encounter = {
         "id": encounter_id,
         "text": clinical_notes,
@@ -397,6 +406,96 @@ def build_entities_payload(
         "entities": [encounter] + presentations + diagnosis_entities + medication_entities,
         "relationships": relationships,
     }
+
+
+_CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_identifier(value: str) -> str:
+    if not _CYPHER_IDENTIFIER_RE.match(value):
+        raise ValueError(f"Unsafe Cypher identifier: {value!r}")
+    return value
+
+
+# Per-type natural id field used as each label's Neo4j key, mirroring
+# cliniprompt-graph/backend/graph.py's _get_id_field (the separate FastAPI project this
+# payload's entity/relationship shape was designed to feed) so data from both apps stays
+# keyed consistently in the same graph.
+ENTITY_ID_FIELDS = {
+    "Encounter": "encounter_id",
+    "Presentation": "presentation_id",
+    "Diagnosis": "snomed_code",
+    "Medication": "dm_d_id",
+}
+
+
+@st.cache_resource
+def get_neo4j_driver():
+    if not (NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD):
+        return None
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
+    driver.verify_connectivity()
+    return driver
+
+
+def _push_encounter_tx(tx, payload: dict) -> tuple[int, int]:
+    entity_map = {}  # payload entity id -> (label, persisted id)
+    nodes_created = 0
+
+    for entity in payload["entities"]:
+        entity_type = _safe_identifier(entity["type"])
+        id_field = ENTITY_ID_FIELDS[entity_type]
+
+        if entity_type == "Encounter":
+            persisted_id = entity["id"]
+        elif entity_type == "Presentation":
+            # No natural key for symptoms (unlike Diagnosis/Medication's SNOMED/dm+d
+            # codes) — each mention is its own node.
+            persisted_id = str(uuid4())
+        else:
+            persisted_id = entity["properties"].get(id_field) or f"temp-{uuid4()}"
+
+        properties = {id_field: persisted_id, "created_at": datetime.now(), **entity["properties"]}
+        if entity_type != "Encounter":
+            properties.setdefault("name", entity["text"])
+
+        prop_str = ", ".join(f"{k}: ${k}" for k in properties)
+        tx.run(f"CREATE (n:{entity_type} {{{prop_str}}})", **properties)
+        entity_map[entity["id"]] = (entity_type, persisted_id)
+        nodes_created += 1
+
+    rels_created = 0
+    for rel in payload["relationships"]:
+        from_type, from_id = entity_map[rel["source"]]
+        to_type, to_id = entity_map[rel["target"]]
+        from_field, to_field = ENTITY_ID_FIELDS[from_type], ENTITY_ID_FIELDS[to_type]
+        rel_type = _safe_identifier(rel["type"])
+        tx.run(
+            f"MATCH (from:{from_type} {{{from_field}: $from_id}}), (to:{to_type} {{{to_field}: $to_id}}) "
+            f"CREATE (from)-[:{rel_type}]->(to)",
+            from_id=from_id,
+            to_id=to_id,
+        )
+        rels_created += 1
+
+    return nodes_created, rels_created
+
+
+def push_encounter_to_neo4j(payload: dict) -> tuple[int, int]:
+    driver = get_neo4j_driver()
+    if driver is None:
+        raise RuntimeError("Neo4j is not configured (set NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD in .env)")
+    with driver.session(database=NEO4J_DATABASE) as session:
+        return session.execute_write(_push_encounter_tx, payload)
+
+
+def fetch_encounter_subgraph(encounter_id: str):
+    driver = get_neo4j_driver()
+    return driver.execute_query(
+        "MATCH (e:Encounter {encounter_id: $id})-[r]->(child) RETURN e, r, child",
+        id=encounter_id,
+        database_=NEO4J_DATABASE,
+    )
 
 
 def get_source_context(symptom: dict, original_text: str, padding: int = 100):
@@ -486,6 +585,12 @@ if "error" not in st.session_state:
     st.session_state.error = ""
 if "encounter_datetime" not in st.session_state:
     st.session_state.encounter_datetime = None
+if "encounter_id" not in st.session_state:
+    st.session_state.encounter_id = None
+if "neo4j_push_status" not in st.session_state:
+    st.session_state.neo4j_push_status = ""
+if "graph_viz_html" not in st.session_state:
+    st.session_state.graph_viz_html = None
 
 st.title("🏥 Clinical Data Entry")
 st.caption("Enter clinical information and extract symptoms")
@@ -546,7 +651,10 @@ with right:
             with st.spinner("Analysing..."):
                 try:
                     st.session_state.encounter_datetime = datetime.now()
+                    st.session_state.encounter_id = str(uuid4())
                     st.session_state.original_text = all_text
+                    st.session_state.neo4j_push_status = ""
+                    st.session_state.graph_viz_html = None
 
                     if history.strip():
                         st.session_state.symptoms = run_extraction(
@@ -617,13 +725,42 @@ with right:
             st.session_state.medications,
             st.session_state.encounter_datetime,
             st.session_state.original_text,
+            st.session_state.encounter_id,
         )
-        st.download_button(
-            "Generate Graph (JSON)",
-            data=json.dumps(payload, indent=2),
-            file_name=f"clinical_graph_{datetime.now().strftime('%Y-%m-%d')}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
+
+        neo4j_configured = bool(NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD)
+        dl_col, push_col = st.columns(2)
+        with dl_col:
+            st.download_button(
+                "Generate Graph (JSON)",
+                data=json.dumps(payload, indent=2),
+                file_name=f"clinical_graph_{datetime.now().strftime('%Y-%m-%d')}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        with push_col:
+            if st.button("Push to Neo4j", use_container_width=True, disabled=not neo4j_configured):
+                try:
+                    with st.spinner("Pushing to Neo4j..."):
+                        nodes, rels = push_encounter_to_neo4j(payload)
+                        result = fetch_encounter_subgraph(st.session_state.encounter_id)
+                        vg = from_neo4j(result)
+                        vg.color_nodes(field="caption")
+                        st.session_state.graph_viz_html = vg.render().data
+                    st.session_state.neo4j_push_status = (
+                        f"success: Pushed {nodes} nodes and {rels} relationships to Neo4j."
+                    )
+                except Exception as e:
+                    st.session_state.neo4j_push_status = f"error: Failed to push to Neo4j: {e}"
+            if not neo4j_configured:
+                st.caption("Set NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD in .env to enable this.")
+
+        if st.session_state.neo4j_push_status:
+            kind, _, message = st.session_state.neo4j_push_status.partition(": ")
+            (st.success if kind == "success" else st.error)(message)
+
+        if st.session_state.graph_viz_html:
+            st.subheader("Graph in Neo4j")
+            st.iframe(st.session_state.graph_viz_html, height=500)
 
 st.caption("🔐 Data is processed using Google Gemini API")
