@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import langextract as lx
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from neo4j_viz.neo4j import from_neo4j
@@ -602,7 +603,12 @@ def render_results_panel(state_key, source_text_key, expanded_key, panel_title, 
             st.rerun()
 
 
-st.set_page_config(page_title="Clinical Consultation Analyzer", page_icon="🏥", layout="wide")
+st.set_page_config(
+    page_title="Clinical Consultation Analyzer",
+    page_icon="🏥",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 if "symptoms" not in st.session_state:
     st.session_state.symptoms = []
@@ -640,6 +646,8 @@ if "neo4j_push_status" not in st.session_state:
     st.session_state.neo4j_push_status = ""
 if "graph_viz_html" not in st.session_state:
     st.session_state.graph_viz_html = None
+if "collapse_sidebar" not in st.session_state:
+    st.session_state.collapse_sidebar = False
 
 st.title("🏥 Clinical Data Entry")
 st.caption("Enter clinical information and extract symptoms")
@@ -664,7 +672,23 @@ with st.sidebar:
         st.session_state.examination = case["examination"]
         st.session_state.diagnosis = case["diagnosis"]
         st.session_state.plan = case["plan"]
+        st.session_state.collapse_sidebar = True
         st.rerun()
+
+if st.session_state.collapse_sidebar:
+    st.session_state.collapse_sidebar = False
+    components.html(
+        """
+        <script>
+            const btn = window.parent.document.querySelector(
+                '[data-testid="stSidebarCollapseButton"] button'
+            );
+            if (btn) { btn.click(); }
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 left, center, right = st.columns([2, 0.7, 2.3])
 
@@ -682,11 +706,7 @@ with left:
     plan = st.text_area("Plan", key="plan", placeholder="Enter treatment plan...", height=120, label_visibility="collapsed")
 
 with center:
-    model_id = st.text_input("Model ID", value=DEFAULT_MODEL_ID)
-    st.caption(
-        "Note: the vendored langextract library's documented default is "
-        "`gemini-3.5-flash` — double-check this ID is valid for your key."
-    )
+    model_id = DEFAULT_MODEL_ID
     analyse_clicked = st.button("Analyse", use_container_width=True, type="primary")
 
 with right:

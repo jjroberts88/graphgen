@@ -153,8 +153,8 @@ Everything lives in `streamlit_app.py`, structured as:
   `symptom_expanded_index`, `diagnoses`, `diagnosis_source_text`, `diagnosis_expanded_index`,
   `medications`, `medication_source_text`, `medication_expanded_index`, `investigations`,
   `investigation_source_text`, `investigation_expanded_index`, `error`, `encounter_datetime`,
-  `encounter_id`, `neo4j_push_status`, `graph_viz_html`) lives in `st.session_state`, which is
-  scoped per browser session.
+  `encounter_id`, `neo4j_push_status`, `graph_viz_html`, `collapse_sidebar`) lives in
+  `st.session_state`, which is scoped per browser session.
   `original_text` (the combined History/Examination/Diagnosis/Plan text) is kept only for the
   Encounter's `clinical_notes` property — `symptom_source_text` (History only),
   `diagnosis_source_text` (Diagnosis only), `medication_source_text` (Plan only), and
@@ -170,11 +170,22 @@ Everything lives in `streamlit_app.py`, structured as:
   diagnosis, plan}` text. The sidebar (`st.sidebar`, rendered right after the API-key check) has a
   selectbox over `SAMPLE_CASES` and a "Load Sample Case" button that writes the chosen case's
   fields directly into `st.session_state.history`/`.examination`/`.diagnosis`/`.plan` (the same
-  keys the four `text_area` widgets use) before calling `st.rerun()`. This relies on the sidebar
-  block executing *before* the `text_area` widgets are instantiated later in the script — Streamlit
-  requires a widget's session-state value to be set before that widget is created on the same run,
-  so don't move this block below the `left, center, right` columns or the load will silently no-op
-  on the next widget instantiation.
+  keys the four `text_area` widgets use), sets `st.session_state.collapse_sidebar = True`, and
+  calls `st.rerun()`. This relies on the sidebar block executing *before* the `text_area` widgets
+  are instantiated later in the script — Streamlit requires a widget's session-state value to be
+  set before that widget is created on the same run, so don't move this block below the
+  `left, center, right` columns or the load will silently no-op on the next widget instantiation.
+  `st.set_page_config(..., initial_sidebar_state="expanded")` keeps the sidebar (and the Sample
+  Cases section in it) open on first load. Right after the sidebar block, a check on
+  `st.session_state.collapse_sidebar` fires a one-shot `st.components.v1.html` snippet that finds
+  and clicks the sidebar's own collapse button (`[data-testid="stSidebarCollapseButton"] button`)
+  in the parent document, then immediately resets the flag to `False` — this is what auto-collapses
+  the sidebar after "Load Sample Case" so the user doesn't have to click the collapse arrow
+  themselves. It has to be a real simulated click on Streamlit's own control (rather than e.g.
+  reissuing `initial_sidebar_state` on rerun) because Streamlit persists the sidebar's
+  expanded/collapsed state to the browser's `localStorage` once the user (or a simulated click)
+  toggles it, and that persisted value takes precedence over `initial_sidebar_state` on every
+  subsequent rerun.
 
 Symptoms, diagnoses, medications, and investigations can each be added manually (via a form) or
 removed, independent of extraction — the lists in
@@ -183,9 +194,11 @@ truth once populated, not re-derived from the LLM result after edits. Manually-a
 still get `status: "ordered"` applied in `build_entities_payload` (it's set on every `Procedure`
 entity regardless of origin), not just ones that came from extraction.
 
-The default `model_id` is `"gemini-3.6-flash"`, exposed as an editable field in the UI (not
-hardcoded) because it doesn't match the vendored `langextract` library's documented default of
-`gemini-3.5-flash` — this was never fully verified against the active API key/provider.
+The default `model_id` is `"gemini-3.6-flash"` (`DEFAULT_MODEL_ID`), used directly with no UI
+control to edit it — the model name isn't something an end user of this app needs to see or
+change. It doesn't match the vendored `langextract` library's documented default of
+`gemini-3.5-flash`; this was never fully verified against the active API key/provider, so if
+extraction calls start failing, check this constant first.
 
 `REQUEST_GUIDE.md` documents Gemini free-tier rate limits (20 RPM / 300 QPD) and how
 `extraction_passes`, `max_workers`, and `max_char_buffer` affect request volume — relevant if
