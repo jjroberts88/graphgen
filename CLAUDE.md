@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Streamlit app ("Clinical Consultation Analyzer") that extracts medical symptoms, diagnoses, and
-medications from clinical consultation notes using an LLM (via the `langextract` library), lets a
-user review/edit the extracted results, and exports them as a JSON entities/relationships payload
-for Neo4j ingestion. The entire app is one file: `streamlit_app.py`.
+A Streamlit app ("Clinical Consultation Analyzer") that extracts medical symptoms, diagnoses,
+medications, and investigations from clinical consultation notes using an LLM (via the
+`langextract` library), lets a user review/edit the extracted results, and exports them as a JSON
+entities/relationships payload for Neo4j ingestion. The entire app is one file:
+`streamlit_app.py`.
 
 This used to be a two-service app (FastAPI backend + React frontend); that was replaced with a
 single Streamlit app to simplify local prototyping. There is no backend/frontend split anymore —
@@ -37,15 +38,20 @@ panel are disabled.
 
 Everything lives in `streamlit_app.py`, structured as:
 
-- **Extraction config** — three prompt/few-shot-example pairs passed to `langextract`:
+- **Extraction config** — four prompt/few-shot-example pairs passed to `langextract`:
   `EXTRACTION_PROMPT`/`EXTRACTION_EXAMPLES` for symptoms,
   `DIAGNOSIS_EXTRACTION_PROMPT`/`DIAGNOSIS_EXTRACTION_EXAMPLES` for diagnoses (mirrors the
-  `status`/`certainty` enums on the `Diagnosis` entity in `schema.json`), and
+  `status`/`certainty` enums on the `Diagnosis` entity in `schema.json`),
   `MEDICATION_EXTRACTION_PROMPT`/`MEDICATION_EXTRACTION_EXAMPLES` for medications (attributes
   `dosage`/`route`/`duration`/`indication` mirror the properties `schema.json` defines on its
-  `Prescription` entity, with `route` matching that entity's enum). All three extractions run
-  against a single input field rather than the combined consultation text: symptoms against
-  History only, diagnoses against Diagnosis only, medications against Plan only. Symptom
+  `Prescription` entity, with `route` matching that entity's enum), and
+  `PROCEDURE_EXTRACTION_PROMPT`/`PROCEDURE_EXTRACTION_EXAMPLES` for investigations (maps to
+  `schema.json`'s `Procedure` entity — see the `build_entities_payload` bullet below for how the
+  ordered-vs-performed distinction is handled). All four extractions run against a single input
+  field rather than the combined consultation text: symptoms against History only, diagnoses
+  against Diagnosis only, medications and investigations both against Plan only (two independent
+  `lx.extract` calls over the same text — the investigation prompt explicitly excludes
+  medications/referrals/follow-ups to keep the two passes from overlapping). Symptom
   extraction is normalized: the prompt instructs the LLM to extract only the canonical symptom
   name (`"cough"`, not `"productive cough with green sputum"`) as `extraction_text`, pushing
   qualifying detail not already captured by `body_part`/`severity`/`duration` into a `descriptor`
@@ -59,30 +65,39 @@ Everything lives in `streamlit_app.py`, structured as:
   the result into a list of `{text, attributes, position}` dicts. `position` holds character
   offsets (`char_interval.start_pos`/`end_pos`) into the original text, used later for source
   highlighting. Generalized over `prompt`/`examples` so it's reused for the symptom, diagnosis,
-  and medication passes.
-- **`build_entities_payload(symptoms, diagnoses, medications, encounter_datetime,
-  clinical_notes, encounter_id)`** / **`_to_entity(...)`** — format symptoms, diagnoses, and
-  medications into a JSON `{entities, relationships}` payload matching the Entity/Relationship
-  contract used by the separate `cliniprompt-graph` project's Neo4j ingestion. Entity `type`
-  values (`"Encounter"`, `"Presentation"`, `"Diagnosis"`, `"Medication"`) are `schema.json` entity
-  labels used directly as Neo4j node labels there, so they must stay capitalized exactly as in
-  `schema.json`. Every payload has exactly one `Encounter` entity acting as the anchor node — its
-  `id` is a `uuid4()` generated once per "Analyse" click and stored in
-  `st.session_state.encounter_id` (passed in by the caller, not generated inside the function),
-  its `encounter_date` property is captured as `datetime.now()` at the same moment (stored in
-  `st.session_state.encounter_datetime`), and its `clinical_notes` property is the combined
-  History/Examination/Diagnosis/Plan text (`st.session_state.original_text`), matching
-  `schema.json`'s description of that field. Each Presentation/Diagnosis/Medication entity gets a
-  corresponding `PRESENTED_WITH`/`DIAGNOSED_WITH`/`PRESCRIBED` relationship from the encounter.
-  Medication is a deliberate schema simplification: `schema.json` models medications as two linked
-  nodes (`Prescription` — the per-encounter dosage/route/duration/indication — connected via
-  `FOR_MEDICATION` to a `Medication` drug concept with a unique `dm_d_id`), but this app flattens
-  that into a single `Medication` entity per mention carrying the `Prescription` properties as
-  attributes, linked directly from the encounter via `PRESCRIBED` — consistent with how
-  `Diagnosis` is already flattened despite `schema.json` giving it a unique `snomed_code` too. The
-  `Prescription` node and `FOR_MEDICATION` relationship are not produced by this app. There's still
-  no Patient/Clinician/Facility wrapper — this app doesn't collect that metadata — and the app
-  only populates the Encounter properties it actually collects (`encounter_date`,
+  medication, and investigation passes.
+- **`build_entities_payload(symptoms, diagnoses, medications, investigations,
+  encounter_datetime, clinical_notes, encounter_id)`** / **`_to_entity(...)`** — format symptoms,
+  diagnoses, medications, and investigations into a JSON `{entities, relationships}` payload
+  matching the Entity/Relationship contract used by the separate `cliniprompt-graph` project's
+  Neo4j ingestion. Entity `type` values (`"Encounter"`, `"Presentation"`, `"Diagnosis"`,
+  `"Medication"`, `"Procedure"`) are `schema.json` entity labels used directly as Neo4j node
+  labels there, so they must stay capitalized exactly as in `schema.json`. Every payload has
+  exactly one `Encounter` entity acting as the anchor node — its `id` is a `uuid4()` generated
+  once per "Analyse" click and stored in `st.session_state.encounter_id` (passed in by the caller,
+  not generated inside the function), its `encounter_date` property is captured as
+  `datetime.now()` at the same moment (stored in `st.session_state.encounter_datetime`), and its
+  `clinical_notes` property is the combined History/Examination/Diagnosis/Plan text
+  (`st.session_state.original_text`), matching `schema.json`'s description of that field. Each
+  Presentation/Diagnosis/Medication/Procedure entity gets a corresponding
+  `PRESENTED_WITH`/`DIAGNOSED_WITH`/`PRESCRIBED`/`INCLUDED_PROCEDURE` relationship from the
+  encounter. Medication is a deliberate schema simplification: `schema.json` models medications as
+  two linked nodes (`Prescription` — the per-encounter dosage/route/duration/indication —
+  connected via `FOR_MEDICATION` to a `Medication` drug concept with a unique `dm_d_id`), but this
+  app flattens that into a single `Medication` entity per mention carrying the `Prescription`
+  properties as attributes, linked directly from the encounter via `PRESCRIBED` — consistent with
+  how `Diagnosis` is already flattened despite `schema.json` giving it a unique `snomed_code` too.
+  The `Prescription` node and `FOR_MEDICATION` relationship are not produced by this app.
+  Investigations extracted from the Plan field are similarly a simplification: `schema.json`'s
+  `Procedure` entity has a `result` property and its `INCLUDED_PROCEDURE` relationship is described
+  as "performed in this encounter," both implying a completed test, but anything pulled from the
+  Plan field is an order, not a finished result — `result` is left unset and every extracted
+  `Procedure` gets a hardcoded `status: "ordered"` attribute instead (set in code, not inferred by
+  the LLM, since the Plan field itself is what establishes that status — see the extraction config
+  bullet above). `status` isn't a `schema.json`-defined property on `Procedure`, same as
+  `Presentation`'s `descriptor`/`body_part` — extra properties pass through unvalidated. There's
+  still no Patient/Clinician/Facility wrapper — this app doesn't collect that metadata — and the
+  app only populates the Encounter properties it actually collects (`encounter_date`,
   `clinical_notes`); other schema-defined Encounter properties (`encounter_type`,
   `chief_complaint`, `duration_minutes`, `outcome`) are omitted rather than guessed at.
 - **`get_neo4j_driver()` / `push_encounter_to_neo4j(payload)` / `fetch_encounter_subgraph(encounter_id)`**
@@ -96,7 +111,7 @@ Everything lives in `streamlit_app.py`, structured as:
   update-in-place/idempotent-repush behavior, matching a one-shot "review, then save" action.
   `ENTITY_ID_FIELDS` maps each label to the Neo4j-key property it's created with
   (`Encounter→encounter_id`, `Diagnosis→snomed_code`, `Medication→dm_d_id`,
-  `Presentation→presentation_id`) — this mirrors `_get_id_field` in
+  `Presentation→presentation_id`, `Procedure→procedure_id`) — this mirrors `_get_id_field` in
   `cliniprompt-graph/backend/graph.py`'s `save_encounter_to_graph` (a sibling project checked out
   locally at `~/Downloads/cliniprompt-graph`, the original consumer this payload shape was
   designed for) so data pushed from this app stays keyed the same way as data from that one, even
@@ -104,8 +119,12 @@ Everything lives in `streamlit_app.py`, structured as:
   Patient/Clinician info that service requires, and its `Relationship` model uses
   `from_entity`/`to_entity` where this app's payload uses `source`/`target`). Since this app never
   extracts SNOMED/dm+d codes, Diagnosis/Medication nodes get a `f"temp-{uuid4()}"` placeholder id
-  (same convention as the reference implementation) unless `properties` already has one; Presentation
-  has no natural key at all, so it always gets a fresh `uuid4()`. Cypher label/relationship-type
+  (same convention as the reference implementation) unless `properties` already has one;
+  Presentation and Procedure have no natural key at all (this app never extracts SNOMED codes for
+  investigations either, even though `schema.json`'s `Procedure` allows one) — both always get a
+  fresh `uuid4()` rather than a `temp-` placeholder, since that placeholder specifically signals "a
+  real-world code should exist here but wasn't extracted," which doesn't apply to either type.
+  Cypher label/relationship-type
   strings are validated with `_safe_identifier` (`^[A-Za-z_][A-Za-z0-9_]*$`) before being
   f-string-interpolated into a query — defense-in-depth even though they only ever come from this
   app's own fixed vocabulary, never user input. `fetch_encounter_subgraph` re-queries the just-pushed
@@ -123,22 +142,27 @@ Everything lives in `streamlit_app.py`, structured as:
 - **`get_source_context(symptom, original_text, padding=100)`** — reconstructs a highlighted
   snippet around an item's position for the "view source" (📍) toggle, entirely client-side
   from the stored offsets — there's no server-rendered HTML view like the old FastAPI
-  `/visualize` endpoint had. Used by the symptoms, diagnoses, and medications panels.
+  `/visualize` endpoint had. Used by the symptoms, diagnoses, medications, and investigations
+  panels.
 - **`render_results_panel(...)`** — renders one results panel (list + 📍/✕ controls + "add new"
   form); parameterized by session-state keys and labels so it's reused for the Symptoms,
-  Diagnoses, and Medications tabs rather than duplicated.
+  Diagnoses, Medications, and Investigations tabs rather than duplicated.
 - **UI section** (bottom of the file) — three-column layout (History/Examination/Diagnosis/Plan
-  inputs → Analyse button → tabbed results panel with separate Symptoms, Diagnoses, and
-  Medications tabs). All app state (`symptoms`, `original_text`, `symptom_source_text`,
+  inputs → Analyse button → tabbed results panel with separate Symptoms, Diagnoses, Medications,
+  and Investigations tabs). All app state (`symptoms`, `original_text`, `symptom_source_text`,
   `symptom_expanded_index`, `diagnoses`, `diagnosis_source_text`, `diagnosis_expanded_index`,
-  `medications`, `medication_source_text`, `medication_expanded_index`, `error`,
-  `encounter_datetime`, `encounter_id`, `neo4j_push_status`, `graph_viz_html`) lives in
-  `st.session_state`, which is scoped per browser session.
+  `medications`, `medication_source_text`, `medication_expanded_index`, `investigations`,
+  `investigation_source_text`, `investigation_expanded_index`, `error`, `encounter_datetime`,
+  `encounter_id`, `neo4j_push_status`, `graph_viz_html`) lives in `st.session_state`, which is
+  scoped per browser session.
   `original_text` (the combined History/Examination/Diagnosis/Plan text) is kept only for the
   Encounter's `clinical_notes` property — `symptom_source_text` (History only),
-  `diagnosis_source_text` (Diagnosis only), and `medication_source_text` (Plan only) are what each
-  results panel's "view source" (📍) highlighting is actually reconstructed from, so offsets line
-  up with the field each extraction pass ran against. This was a deliberate fix for a bug in the
+  `diagnosis_source_text` (Diagnosis only), `medication_source_text` (Plan only), and
+  `investigation_source_text` (also Plan only — duplicated from the same field rather than shared
+  with `medication_source_text`, keeping the one-key-per-panel convention consistent even though
+  the underlying text is identical) are what each results panel's "view source" (📍) highlighting
+  is actually reconstructed from, so offsets line up with the field each extraction pass ran
+  against. This was a deliberate fix for a bug in the
   old FastAPI backend, which stored the last extraction result as attributes on the global `app`
   object — safe for one user, broken for concurrent ones. Don't reintroduce module-level/global
   mutable state for request data.
@@ -152,9 +176,12 @@ Everything lives in `streamlit_app.py`, structured as:
   so don't move this block below the `left, center, right` columns or the load will silently no-op
   on the next widget instantiation.
 
-Symptoms, diagnoses, and medications can each be added manually (via a form) or removed,
-independent of extraction — the lists in `st.session_state.symptoms`/`.diagnoses`/`.medications`
-are the single source of truth once populated, not re-derived from the LLM result after edits.
+Symptoms, diagnoses, medications, and investigations can each be added manually (via a form) or
+removed, independent of extraction — the lists in
+`st.session_state.symptoms`/`.diagnoses`/`.medications`/`.investigations` are the single source of
+truth once populated, not re-derived from the LLM result after edits. Manually-added investigations
+still get `status: "ordered"` applied in `build_entities_payload` (it's set on every `Procedure`
+entity regardless of origin), not just ones that came from extraction.
 
 The default `model_id` is `"gemini-3.6-flash"`, exposed as an editable field in the UI (not
 hardcoded) because it doesn't match the vendored `langextract` library's documented default of
@@ -162,7 +189,10 @@ hardcoded) because it doesn't match the vendored `langextract` library's documen
 
 `REQUEST_GUIDE.md` documents Gemini free-tier rate limits (20 RPM / 300 QPD) and how
 `extraction_passes`, `max_workers`, and `max_char_buffer` affect request volume — relevant if
-`run_extraction` is ever changed to process multiple documents or use more than one pass.
+`run_extraction` is ever changed to process multiple documents or use more than one pass. Each
+"Analyse" click now makes four `lx.extract` calls (symptoms, diagnoses, medications,
+investigations) rather than three — worth keeping in mind against the 20 RPM ceiling if another
+extraction pass is added.
 
 ## Repo layout gotcha: `graphgen/` is a separate git repository
 

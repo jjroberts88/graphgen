@@ -229,6 +229,41 @@ MEDICATION_EXTRACTION_EXAMPLES = [
     )
 ]
 
+PROCEDURE_EXTRACTION_PROMPT = """Extract all investigations, diagnostic tests, or procedures
+ordered or arranged in this treatment plan (e.g. blood tests, imaging, ECGs). Do not extract
+medications, prescriptions, referrals to a specialty/service, or follow-up appointments.
+
+For each investigation, extract only its core/canonical name, e.g. "chest X-ray" (not "arrange
+chest X-ray"), "full blood count" (not "bloods including FBC and CRP" as a single item — split
+into separate investigations). Use exact text from the document. Do not combine multiple
+distinct investigations into one extraction. List investigations in the order they appear in
+the text."""
+
+PROCEDURE_EXTRACTION_EXAMPLES = [
+    lx.data.ExampleData(
+        text="""Start empirical oral antibiotics (amoxicillin), arrange chest X-ray and bloods
+        including CRP and blood cultures. Advise safety-net for worsening breathlessness.
+        Review in 48 hours or sooner if deteriorating.""",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="investigation",
+                extraction_text="chest X-ray",
+                attributes={},
+            ),
+            lx.data.Extraction(
+                extraction_class="investigation",
+                extraction_text="CRP",
+                attributes={},
+            ),
+            lx.data.Extraction(
+                extraction_class="investigation",
+                extraction_text="blood cultures",
+                attributes={},
+            ),
+        ],
+    )
+]
+
 
 SAMPLE_CASES = {
     "Community-acquired pneumonia": {
@@ -375,6 +410,7 @@ def build_entities_payload(
     symptoms: list[dict],
     diagnoses: list[dict],
     medications: list[dict],
+    investigations: list[dict],
     encounter_datetime: datetime,
     clinical_notes: str,
     encounter_id: str,
@@ -395,15 +431,21 @@ def build_entities_payload(
     medication_entities = [
         _to_entity(item, idx, "medication", "Medication") for idx, item in enumerate(medications, 1)
     ]
+    procedure_entities = [
+        _to_entity(item, idx, "procedure", "Procedure") for idx, item in enumerate(investigations, 1)
+    ]
+    for entity in procedure_entities:
+        entity["properties"].setdefault("status", "ordered")
 
     relationships = (
         [{"type": "PRESENTED_WITH", "source": encounter_id, "target": entity["id"]} for entity in presentations]
         + [{"type": "DIAGNOSED_WITH", "source": encounter_id, "target": entity["id"]} for entity in diagnosis_entities]
         + [{"type": "PRESCRIBED", "source": encounter_id, "target": entity["id"]} for entity in medication_entities]
+        + [{"type": "INCLUDED_PROCEDURE", "source": encounter_id, "target": entity["id"]} for entity in procedure_entities]
     )
 
     return {
-        "entities": [encounter] + presentations + diagnosis_entities + medication_entities,
+        "entities": [encounter] + presentations + diagnosis_entities + medication_entities + procedure_entities,
         "relationships": relationships,
     }
 
@@ -426,6 +468,7 @@ ENTITY_ID_FIELDS = {
     "Presentation": "presentation_id",
     "Diagnosis": "snomed_code",
     "Medication": "dm_d_id",
+    "Procedure": "procedure_id",
 }
 
 
@@ -448,9 +491,9 @@ def _push_encounter_tx(tx, payload: dict) -> tuple[int, int]:
 
         if entity_type == "Encounter":
             persisted_id = entity["id"]
-        elif entity_type == "Presentation":
-            # No natural key for symptoms (unlike Diagnosis/Medication's SNOMED/dm+d
-            # codes) — each mention is its own node.
+        elif entity_type in ("Presentation", "Procedure"):
+            # No natural key for symptoms/investigations (unlike Diagnosis/Medication's
+            # SNOMED/dm+d codes) — each mention is its own node.
             persisted_id = str(uuid4())
         else:
             persisted_id = entity["properties"].get(id_field) or f"temp-{uuid4()}"
@@ -581,6 +624,12 @@ if "medication_source_text" not in st.session_state:
     st.session_state.medication_source_text = ""
 if "medication_expanded_index" not in st.session_state:
     st.session_state.medication_expanded_index = None
+if "investigations" not in st.session_state:
+    st.session_state.investigations = []
+if "investigation_source_text" not in st.session_state:
+    st.session_state.investigation_source_text = ""
+if "investigation_expanded_index" not in st.session_state:
+    st.session_state.investigation_expanded_index = None
 if "error" not in st.session_state:
     st.session_state.error = ""
 if "encounter_datetime" not in st.session_state:
@@ -685,11 +734,23 @@ with right:
                         st.session_state.medications = []
                         st.session_state.medication_source_text = ""
                     st.session_state.medication_expanded_index = None
+
+                    if plan.strip():
+                        st.session_state.investigations = run_extraction(
+                            plan, model_id, PROCEDURE_EXTRACTION_PROMPT, PROCEDURE_EXTRACTION_EXAMPLES
+                        )
+                        st.session_state.investigation_source_text = plan
+                    else:
+                        st.session_state.investigations = []
+                        st.session_state.investigation_source_text = ""
+                    st.session_state.investigation_expanded_index = None
                 except Exception as e:
                     st.session_state.error = f"Failed to analyse: {e}"
             st.rerun()
 
-    symptoms_tab, diagnoses_tab, medications_tab = st.tabs(["Symptoms", "Diagnoses", "Medications"])
+    symptoms_tab, diagnoses_tab, medications_tab, investigations_tab = st.tabs(
+        ["Symptoms", "Diagnoses", "Medications", "Investigations"]
+    )
 
     with symptoms_tab:
         render_results_panel(
@@ -718,11 +779,26 @@ with right:
             item_name="medication",
         )
 
-    if st.session_state.symptoms or st.session_state.diagnoses or st.session_state.medications:
+    with investigations_tab:
+        render_results_panel(
+            state_key="investigations",
+            source_text_key="investigation_source_text",
+            expanded_key="investigation_expanded_index",
+            panel_title="Extracted Investigations",
+            item_name="investigation",
+        )
+
+    if (
+        st.session_state.symptoms
+        or st.session_state.diagnoses
+        or st.session_state.medications
+        or st.session_state.investigations
+    ):
         payload = build_entities_payload(
             st.session_state.symptoms,
             st.session_state.diagnoses,
             st.session_state.medications,
+            st.session_state.investigations,
             st.session_state.encounter_datetime,
             st.session_state.original_text,
             st.session_state.encounter_id,
