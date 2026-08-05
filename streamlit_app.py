@@ -29,7 +29,7 @@ NEO4J_USERNAME = os.getenv("NEO4J_USERNAME")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 
-DEFAULT_MODEL_ID = "gemini-3.6-flash"
+DEFAULT_MODEL_ID = "gemini-3.5-flash-lite"
 
 EXTRACTION_PROMPT = """Extract all medical symptoms mentioned in this patient history.
 
@@ -649,8 +649,24 @@ if "graph_viz_html" not in st.session_state:
 if "collapse_sidebar" not in st.session_state:
     st.session_state.collapse_sidebar = False
 
-st.title("🏥 Clinical Data Entry")
-st.caption("Enter clinical information and extract symptoms")
+header_left, header_right = st.columns([3, 1])
+
+with header_left:
+    st.title("🏥 CliniPrompt GraphGen")
+    st.caption("Enter clinical information and extract symptoms")
+
+with header_right:
+    st.markdown(
+        """
+        <div style="text-align: right; padding-top: 1.5rem; line-height: 1.6;">
+            <div><strong>Simpson, Homer</strong></div>
+            <div>DOB: 12-Feb-1977 (49y)</div>
+            <div>NHS No: 485 773 2091</div>
+            <div>Sex: Male</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 if not API_KEY:
     st.error(

@@ -147,9 +147,14 @@ Everything lives in `streamlit_app.py`, structured as:
 - **`render_results_panel(...)`** — renders one results panel (list + 📍/✕ controls + "add new"
   form); parameterized by session-state keys and labels so it's reused for the Symptoms,
   Diagnoses, Medications, and Investigations tabs rather than duplicated.
-- **UI section** (bottom of the file) — three-column layout (History/Examination/Diagnosis/Plan
-  inputs → Analyse button → tabbed results panel with separate Symptoms, Diagnoses, Medications,
-  and Investigations tabs). All app state (`symptoms`, `original_text`, `symptom_source_text`,
+- **UI section** (bottom of the file) — a header row (`header_left`/`header_right` columns) with
+  the "🏥 CliniPrompt GraphGen" title/caption on the left and a static, hardcoded mock patient
+  banner (name, DOB/age, NHS number, sex — currently "Simpson, Homer") right-aligned on the right,
+  purely cosmetic to make the screen read like a clinical health record; it isn't wired to
+  session state or `SAMPLE_CASES`, so it doesn't change when a sample case is loaded. Below that,
+  the three-column layout (History/Examination/Diagnosis/Plan inputs → Analyse button → tabbed
+  results panel with separate Symptoms, Diagnoses, Medications, and Investigations tabs). All app
+  state (`symptoms`, `original_text`, `symptom_source_text`,
   `symptom_expanded_index`, `diagnoses`, `diagnosis_source_text`, `diagnosis_expanded_index`,
   `medications`, `medication_source_text`, `medication_expanded_index`, `investigations`,
   `investigation_source_text`, `investigation_expanded_index`, `error`, `encounter_datetime`,
@@ -194,11 +199,10 @@ truth once populated, not re-derived from the LLM result after edits. Manually-a
 still get `status: "ordered"` applied in `build_entities_payload` (it's set on every `Procedure`
 entity regardless of origin), not just ones that came from extraction.
 
-The default `model_id` is `"gemini-3.6-flash"` (`DEFAULT_MODEL_ID`), used directly with no UI
+The default `model_id` is `"gemini-3.5-flash-lite"` (`DEFAULT_MODEL_ID`), used directly with no UI
 control to edit it — the model name isn't something an end user of this app needs to see or
-change. It doesn't match the vendored `langextract` library's documented default of
-`gemini-3.5-flash`; this was never fully verified against the active API key/provider, so if
-extraction calls start failing, check this constant first.
+change. This was never fully verified against the active API key/provider, so if extraction calls
+start failing, check this constant first.
 
 `REQUEST_GUIDE.md` documents Gemini free-tier rate limits (20 RPM / 300 QPD) and how
 `extraction_passes`, `max_workers`, and `max_char_buffer` affect request volume — relevant if
