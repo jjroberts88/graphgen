@@ -648,6 +648,8 @@ if "graph_viz_html" not in st.session_state:
     st.session_state.graph_viz_html = None
 if "collapse_sidebar" not in st.session_state:
     st.session_state.collapse_sidebar = False
+if "sidebar_expand_checked" not in st.session_state:
+    st.session_state.sidebar_expand_checked = False
 
 header_left, header_right = st.columns([3, 1])
 
@@ -706,26 +708,52 @@ if st.session_state.collapse_sidebar:
         width=0,
     )
 
-left, center, right = st.columns([2, 0.7, 2.3])
+# Streamlit persists the sidebar's collapsed/expanded state to the browser's
+# localStorage once toggled (including by the auto-collapse above), and that
+# persisted value takes precedence over initial_sidebar_state="expanded" on
+# every future load in that browser - so a stale "collapsed" from a previous
+# session's "Load Sample Case" would otherwise start every new session
+# collapsed too. Once per session, correct that by clicking the sidebar's
+# own expand control if it's present (i.e. only if currently collapsed).
+if not st.session_state.sidebar_expand_checked:
+    st.session_state.sidebar_expand_checked = True
+    components.html(
+        """
+        <script>
+            const btn = window.parent.document.querySelector(
+                '[data-testid="stExpandSidebarButton"]'
+            );
+            if (btn) { btn.click(); }
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+left, right = st.columns([1, 1.2], gap="large")
 
 with left:
-    st.subheader("History")
-    history = st.text_area("History", key="history", placeholder="Enter patient history...", height=120, label_visibility="collapsed")
+    with st.container(border=True, height="content"):
+        st.subheader("History")
+        history = st.text_area("History", key="history", placeholder="Enter patient history...", height="content", label_visibility="collapsed")
 
-    st.subheader("Examination")
-    examination = st.text_area("Examination", key="examination", placeholder="Enter examination findings...", height=120, label_visibility="collapsed")
+        st.subheader("Examination")
+        examination = st.text_area("Examination", key="examination", placeholder="Enter examination findings...", height="content", label_visibility="collapsed")
 
-    st.subheader("Diagnosis")
-    diagnosis = st.text_area("Diagnosis", key="diagnosis", placeholder="Enter diagnosis...", height=120, label_visibility="collapsed")
+        st.subheader("Diagnosis")
+        diagnosis = st.text_area("Diagnosis", key="diagnosis", placeholder="Enter diagnosis...", height="content", label_visibility="collapsed")
 
-    st.subheader("Plan")
-    plan = st.text_area("Plan", key="plan", placeholder="Enter treatment plan...", height=120, label_visibility="collapsed")
+        st.subheader("Plan")
+        plan = st.text_area("Plan", key="plan", placeholder="Enter treatment plan...", height="content", label_visibility="collapsed")
 
-with center:
-    model_id = DEFAULT_MODEL_ID
-    analyse_clicked = st.button("Analyse", use_container_width=True, type="primary")
+        st.divider()
+        model_id = DEFAULT_MODEL_ID
+        analyse_clicked = st.button("Analyse", use_container_width=True, type="primary")
 
 with right:
+    results_pane = st.container(border=True, height=700)
+
+with results_pane:
     if analyse_clicked:
         all_text = f"History: {history}\n\nExamination: {examination}\n\nDiagnosis: {diagnosis}\n\nPlan: {plan}"
 
@@ -785,7 +813,7 @@ with right:
             st.rerun()
 
     symptoms_tab, diagnoses_tab, medications_tab, investigations_tab = st.tabs(
-        ["Symptoms", "Diagnoses", "Medications", "Investigations"]
+        ["Symptoms", "Diagnoses", "Medications", "Investigations"], height="stretch"
     )
 
     with symptoms_tab:

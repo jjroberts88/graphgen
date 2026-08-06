@@ -152,14 +152,23 @@ Everything lives in `streamlit_app.py`, structured as:
   banner (name, DOB/age, NHS number, sex — currently "Simpson, Homer") right-aligned on the right,
   purely cosmetic to make the screen read like a clinical health record; it isn't wired to
   session state or `SAMPLE_CASES`, so it doesn't change when a sample case is loaded. Below that,
-  the three-column layout (History/Examination/Diagnosis/Plan inputs → Analyse button → tabbed
-  results panel with separate Symptoms, Diagnoses, Medications, and Investigations tabs). All app
+  a two-pane layout: a bordered `st.container` on the left holding the History/Examination/
+  Diagnosis/Plan inputs (each `text_area` uses `height="content"` so it grows with what's typed
+  instead of clipping at a fixed pixel height) with the "Analyse" button anchored at its bottom,
+  directly under Plan — deliberately *not* a separate spacer column, so the button reads as the
+  terminal action of the input card rather than an island between two panes. The right pane is a
+  second bordered `st.container(height=700)` holding the tabbed results panel (Symptoms, Diagnoses,
+  Medications, Investigations tabs, `height="stretch"` so the tab body fills the card); the fixed
+  `height=700` gives it its own internal scrollbar once results are long, so reviewing a big
+  extraction doesn't grow the whole page or push the input card out of view. The Analyse button has
+  no `disabled` gating on input state — it's always clickable; the existing post-click validation
+  (empty/too-short combined text) is what surfaces the error, not a greyed-out button. All app
   state (`symptoms`, `original_text`, `symptom_source_text`,
   `symptom_expanded_index`, `diagnoses`, `diagnosis_source_text`, `diagnosis_expanded_index`,
   `medications`, `medication_source_text`, `medication_expanded_index`, `investigations`,
   `investigation_source_text`, `investigation_expanded_index`, `error`, `encounter_datetime`,
-  `encounter_id`, `neo4j_push_status`, `graph_viz_html`, `collapse_sidebar`) lives in
-  `st.session_state`, which is scoped per browser session.
+  `encounter_id`, `neo4j_push_status`, `graph_viz_html`, `collapse_sidebar`,
+  `sidebar_expand_checked`) lives in `st.session_state`, which is scoped per browser session.
   `original_text` (the combined History/Examination/Diagnosis/Plan text) is kept only for the
   Encounter's `clinical_notes` property — `symptom_source_text` (History only),
   `diagnosis_source_text` (Diagnosis only), `medication_source_text` (Plan only), and
@@ -188,9 +197,19 @@ Everything lives in `streamlit_app.py`, structured as:
   the sidebar after "Load Sample Case" so the user doesn't have to click the collapse arrow
   themselves. It has to be a real simulated click on Streamlit's own control (rather than e.g.
   reissuing `initial_sidebar_state` on rerun) because Streamlit persists the sidebar's
-  expanded/collapsed state to the browser's `localStorage` once the user (or a simulated click)
-  toggles it, and that persisted value takes precedence over `initial_sidebar_state` on every
-  subsequent rerun.
+  expanded/collapsed state to the browser's `localStorage` (key `stSidebarCollapsed-`) once the
+  user (or a simulated click) toggles it, and that persisted value takes precedence over
+  `initial_sidebar_state` on every subsequent load — not just later reruns in the same session, but
+  every future session in that browser too. That means the auto-collapse above, left unchecked,
+  would leave every later fresh page load starting collapsed even though
+  `initial_sidebar_state="expanded"` says otherwise. A second one-shot-per-session guard
+  (`st.session_state.sidebar_expand_checked`, checked immediately after the collapse block) corrects
+  this: on the first script run of a session it simulates a click on the sidebar's expand control
+  (`[data-testid="stExpandSidebarButton"]`, the small `>>` control shown when the sidebar is
+  collapsed — a different element from the collapse button above, only present in the DOM when
+  collapsed, so the click is a no-op if the sidebar is already open) and flips the flag so it won't
+  fire again later in the same session — otherwise it would re-expand a sidebar the user (or the
+  sample-case loader) deliberately collapsed mid-session.
 
 Symptoms, diagnoses, medications, and investigations can each be added manually (via a form) or
 removed, independent of extraction — the lists in
