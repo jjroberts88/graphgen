@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Streamlit app for clinical consultation symptom extraction."""
 
+import base64
 import json
 import os
 import re
@@ -30,6 +31,8 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 
 DEFAULT_MODEL_ID = "gemini-3.5-flash-lite"
+
+PATIENT_PHOTO_PATH = Path(__file__).parent / "homer.jpg"
 
 EXTRACTION_PROMPT = """Extract all medical symptoms mentioned in this patient history.
 
@@ -267,90 +270,76 @@ PROCEDURE_EXTRACTION_EXAMPLES = [
 
 
 SAMPLE_CASES = {
-    "Community-acquired pneumonia": {
-        "history": (
-            "68-year-old male presents with a 3-day history of productive cough with "
-            "green sputum, fever, and increasing shortness of breath. He describes "
-            "right-sided pleuritic chest pain that worsens on deep inspiration. Reports "
-            "feeling generally unwell with reduced appetite. No recent travel. Past "
-            "medical history of type 2 diabetes."
-        ),
-        "examination": (
-            "Temperature 38.6C, respiratory rate 24/min, oxygen saturation 93% on room "
-            "air, heart rate 104 bpm, blood pressure 118/76. Reduced breath sounds and "
-            "coarse crackles at the right lower lung base. Dullness to percussion over "
-            "the same area. No peripheral oedema."
-        ),
-        "diagnosis": (
-            "Likely community-acquired pneumonia, probable diagnosis pending chest "
-            "X-ray. Type 2 diabetes, chronic, well controlled."
-        ),
-        "plan": (
-            "Start empirical oral antibiotics (amoxicillin), arrange chest X-ray and "
-            "bloods including CRP and blood cultures. Advise safety-net for worsening "
-            "breathlessness. Review in 48 hours or sooner if deteriorating."
-        ),
+    "Sleep Apnoea": {
+        "history": """Wife Marge reports increased snoring last 6/12. Episodes of pauses in breathing during sleep. Wakes up gasping. Sleep unrefreshing and feeling excessive sleepiness during day. Impacting work as nuclear safety officer - often falling asleep at work.
+Non smoker. Alcohol 6 units 3-4x a week. Obese.
+Driving.""",
+        "examination": """BP 151/81
+Pulse 78 regular
+Chest clear.
+Throat examination NAD.
+Neck circumference 49cm
+Epworth score 16
+Weight 108kg
+BMI 35""",
+        "diagnosis": "1) Obstructive sleep apnoea 2) Obesity 3) Hypertension",
+        "plan": """Bloods - FBC, U+E, LFTs, Lipid profile, HbA1C, TFT
+Ambulatory BP monitor
+ECG
+Weight management referral
+Advised to reduce ETOH
+Referral to sleep clinic for OSA
+Patient information leaflet provided
+Review with results of above""",
     },
-    "Migraine": {
-        "history": (
-            "27-year-old female with a 1-day history of severe, throbbing left-sided "
-            "headache associated with photophobia, phonophobia, and nausea. Reports "
-            "similar episodes roughly once a month, often triggered by poor sleep and "
-            "stress. No visual aura this episode. No head injury."
-        ),
-        "examination": (
-            "Alert and oriented, in obvious discomfort. Neurological examination "
-            "including cranial nerves, tone, power, reflexes, and coordination all "
-            "normal. No neck stiffness or photophobia signs on examination. Fundoscopy "
-            "normal."
-        ),
-        "diagnosis": ("Migraine without aura, recurrent, probable diagnosis based on history."),
-        "plan": (
-            "Advise rest in a dark, quiet room, hydration, and simple analgesia plus "
-            "an antiemetic if needed. Discuss migraine triggers and consider "
-            "prophylaxis if frequency increases. Provide headache diary and follow-up "
-            "in 4 weeks."
-        ),
+    "Gastritis": {
+        "history": """Presents with 1/52 epigastric pain and retrosternal acid sensation/burning. Associated with excessive belching. No dysphagia. No black or bloody stools. No vomiting. No weight loss. Pain is not exertional.
+Symptoms started after entering 'chilli eating' contest followed by ++beer
+No NSAID use""",
+        "examination": """BP 147/71
+Pulse 72
+Temp 36.5c
+Chest clear
+Abdo soft, nil masses, mild epigastric tenderness""",
+        "diagnosis": "Gastritis",
+        "plan": """Omeprazole 20mg PO OD for 4/52
+H Pylori stool test
+Routine bloods to check FBC, CRP, U+E, LFT, Lipase
+Advised to avoid spicy food/ETOH/NSAIDs
+Review with results
+Seek review if worsening symptoms""",
     },
-    "Suspected appendicitis": {
-        "history": (
-            "19-year-old male with a 12-hour history of central abdominal pain that "
-            "has migrated to the right iliac fossa. Associated with nausea, one "
-            "episode of vomiting, and loss of appetite. No diarrhoea. Pain worse on "
-            "movement and coughing."
-        ),
-        "examination": (
-            "Temperature 37.8C, heart rate 96 bpm. Abdomen tender in the right iliac "
-            "fossa with guarding and rebound tenderness. Rovsing's sign positive. "
-            "Bowel sounds present. No masses palpable."
-        ),
-        "diagnosis": (
-            "Query early appendicitis - suspected, referred for surgical review. "
-            "Differential includes mesenteric adenitis."
-        ),
-        "plan": (
-            "Urgent surgical referral, keep nil by mouth, IV fluids, bloods including "
-            "FBC and CRP, and urgent abdominal ultrasound or CT if diagnosis unclear. "
-            "Analgesia as required."
-        ),
+    "Exertional Angina": {
+        "history": """Presents with 4/12 history of central chest tightness on exertion. No radiation to arms/neck. Some associated SOB. No presyncope/syncope.
+Symptoms occurring on inclines after 50m.
+No rest pain.
+Prev successful CABG aged 36y
+Not used GTN.
+Non smoker""",
+        "examination": """BP 146/71
+P 83 regular
+Heart sounds normal
+Chest clear on auscultation
+No pedal oedema.""",
+        "diagnosis": "Exertional Angina",
+        "plan": """ECG
+Bloods - check FBC, U+E, HbA1C, Lipid profile
+Referral to cardiology
+Prescribed GTN spray and advised on use
+Seek urgent medical review if increasing/severe pain""",
     },
-    "Hypertension follow-up": {
-        "history": (
-            "54-year-old female attending for routine hypertension review. Feels well "
-            "with no headaches, chest pain, or visual disturbance. Reports good "
-            "compliance with current antihypertensive medication. No new symptoms "
-            "since last visit."
-        ),
-        "examination": (
-            "Blood pressure 138/86 (repeat 136/84), heart rate 72 bpm regular. Heart "
-            "sounds normal, chest clear, no peripheral oedema. BMI 27."
-        ),
-        "diagnosis": ("Chronic hypertension, well controlled on current medication."),
-        "plan": (
-            "Continue current antihypertensive regimen, reinforce lifestyle advice on "
-            "diet, exercise, and salt intake. Routine bloods (U&E) and repeat review "
-            "in 6 months."
-        ),
+    "Gout": {
+        "history": """Presents with 2/7 history of pain, swelling and erythema in right Hallux MTPJ. No trauma. No prev occurrence. Started after summer BBQ with beer + ribs.
+No fever.""",
+        "examination": """BP 139/61
+P 65
+Temp 36.1c
+
+Right Hallux MTPJ tender, erythema. Able to flex. No tracking cellulitis. Foot pulses normal. Capillary refil <2s""",
+        "diagnosis": "Gout",
+        "plan": """colchicine
+Patient advice leaflet on gout and diet modification
+Advised for blood test in 6 weeks to check uric acid levels and consider allopurinol at this point.""",
     },
 }
 
@@ -658,13 +647,20 @@ with header_left:
     st.caption("Enter clinical information and extract symptoms")
 
 with header_right:
+    photo_b64 = base64.b64encode(PATIENT_PHOTO_PATH.read_bytes()).decode("utf-8")
     st.markdown(
-        """
-        <div style="text-align: right; padding-top: 1.5rem; line-height: 1.6;">
-            <div><strong>Simpson, Homer</strong></div>
-            <div>DOB: 12-Feb-1977 (49y)</div>
-            <div>NHS No: 485 773 2091</div>
-            <div>Sex: Male</div>
+        f"""
+        <div style="display: flex; align-items: center; justify-content: flex-end;
+                    gap: 0.75rem; padding-top: 1.5rem;">
+            <div style="text-align: right; line-height: 1.6;">
+                <div><strong>Simpson, Homer</strong></div>
+                <div>DOB: 12-Feb-1977 (49y)</div>
+                <div>NHS No: 485 773 2091</div>
+                <div>Sex: Male</div>
+                <div>Address: 742 Evergreen Terrace, Springfield</div>
+            </div>
+            <img src="data:image/jpeg;base64,{photo_b64}"
+                 style="width: 64px; height: 64px; object-fit: cover; border-radius: 50%;" />
         </div>
         """,
         unsafe_allow_html=True,
