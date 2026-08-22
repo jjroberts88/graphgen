@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import langextract as lx
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
@@ -29,6 +30,8 @@ NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
+
+BIOPORTAL_API_KEY = os.getenv("BIOPORTAL_API_KEY")
 
 DEFAULT_MODEL_ID = "gemini-3.5-flash-lite"
 
@@ -531,6 +534,22 @@ def fetch_encounter_subgraph(encounter_id: str):
     )
 
 
+def search_snomed_bioportal(query: str, max_results: int = 5) -> list[dict]:
+    """Look up candidate SNOMED CT concepts for free-text diagnosis via BioPortal."""
+    response = requests.get(
+        "https://data.bioontology.org/search",
+        params={"q": query, "ontologies": "SNOMEDCT", "pagesize": max_results, "apikey": BIOPORTAL_API_KEY},
+        timeout=10,
+    )
+    response.raise_for_status()
+    candidates = []
+    for result in response.json().get("collection", [])[:max_results]:
+        code = result.get("@id", "").rsplit("/", 1)[-1]
+        if code:
+            candidates.append({"code": code, "display": result.get("prefLabel", "")})
+    return candidates
+
+
 def get_source_context(symptom: dict, original_text: str, padding: int = 100):
     position = symptom.get("position")
     if not position or not original_text:
@@ -547,7 +566,7 @@ def get_source_context(symptom: dict, original_text: str, padding: int = 100):
     }
 
 
-def render_results_panel(state_key, source_text_key, expanded_key, panel_title, item_name):
+def render_results_panel(state_key, source_text_key, expanded_key, panel_title, item_name, enable_snomed_lookup=False):
     items = st.session_state[state_key]
     if not items:
         st.info(f'Click "Analyse" to extract {item_name}s from the clinical data')
@@ -567,10 +586,32 @@ def render_results_panel(state_key, source_text_key, expanded_key, panel_title, 
             st.session_state[state_key].pop(idx)
             st.rerun()
 
-        attributes = item.get("attributes") or {}
+        attributes = item.setdefault("attributes", {})
         attr_bits = [f"**{k.replace('_', ' ').title()}:** {v}" for k, v in attributes.items() if v]
         if attr_bits:
             st.caption(" · ".join(attr_bits))
+
+        if enable_snomed_lookup and BIOPORTAL_API_KEY:
+            candidates_key = f"{state_key}_snomed_candidates_{idx}"
+            if st.button("🔎 Find SNOMED code", key=f"{state_key}_snomed_search_{idx}"):
+                try:
+                    st.session_state[candidates_key] = search_snomed_bioportal(item["text"])
+                except requests.RequestException as e:
+                    st.session_state[candidates_key] = []
+                    st.error(f"SNOMED lookup failed: {e}")
+
+            candidates = st.session_state.get(candidates_key)
+            if candidates:
+                options = ["Select a match..."] + [f"{c['code']} — {c['display']}" for c in candidates]
+                choice = st.selectbox(
+                    "SNOMED CT match", options, key=f"{state_key}_snomed_choice_{idx}", label_visibility="collapsed"
+                )
+                if choice != "Select a match...":
+                    chosen = candidates[options.index(choice) - 1]
+                    attributes["snomed_code"] = chosen["code"]
+                    attributes["snomed_display"] = chosen["display"]
+            elif candidates == []:
+                st.caption("No SNOMED CT matches found.")
 
         if context and st.session_state[expanded_key] == idx:
             st.markdown(
@@ -828,6 +869,7 @@ with results_pane:
             expanded_key="diagnosis_expanded_index",
             panel_title="Extracted Diagnoses",
             item_name="diagnosis",
+            enable_snomed_lookup=True,
         )
 
     with medications_tab:

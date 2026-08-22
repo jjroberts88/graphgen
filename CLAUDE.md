@@ -34,6 +34,12 @@ The app calls `load_dotenv()` against the project root on startup, then again ag
 still works (extraction + JSON export), but the "Push to Neo4j" button and graph visualization
 panel are disabled.
 
+`BIOPORTAL_API_KEY` is optional — without it the app still works end to end (extraction, edit,
+export, push); the "🔎 Find SNOMED code" lookup button on the Diagnoses panel just doesn't render
+(gated by `enable_snomed_lookup and BIOPORTAL_API_KEY` in `render_results_panel`). Get a free key
+from https://bioportal.bioontology.org/account — see the `search_snomed_bioportal` bullet below
+for why BioPortal specifically.
+
 ## Architecture
 
 Everything lives in `streamlit_app.py`, structured as:
@@ -117,9 +123,12 @@ Everything lives in `streamlit_app.py`, structured as:
   designed for) so data pushed from this app stays keyed the same way as data from that one, even
   though this app doesn't call that FastAPI service directly (it doesn't collect the
   Patient/Clinician info that service requires, and its `Relationship` model uses
-  `from_entity`/`to_entity` where this app's payload uses `source`/`target`). Since this app never
-  extracts SNOMED/dm+d codes, Diagnosis/Medication nodes get a `f"temp-{uuid4()}"` placeholder id
-  (same convention as the reference implementation) unless `properties` already has one;
+  `from_entity`/`to_entity` where this app's payload uses `source`/`target`). Diagnosis is the one
+  exception to "this app never extracts SNOMED/dm+d codes": the optional `search_snomed_bioportal`
+  lookup (see below) lets a user pick a real `snomed_code` for a diagnosis before pushing, which
+  lands in `properties` and is used as-is; without that, and always for Medication (nothing in this
+  app ever populates `dm_d_id`), the entity gets a `f"temp-{uuid4()}"` placeholder id instead (same
+  convention as the reference implementation).
   Presentation and Procedure have no natural key at all (this app never extracts SNOMED codes for
   investigations either, even though `schema.json`'s `Procedure` allows one) — both always get a
   fresh `uuid4()` rather than a `temp-` placeholder, since that placeholder specifically signals "a
@@ -146,7 +155,32 @@ Everything lives in `streamlit_app.py`, structured as:
   panels.
 - **`render_results_panel(...)`** — renders one results panel (list + 📍/✕ controls + "add new"
   form); parameterized by session-state keys and labels so it's reused for the Symptoms,
-  Diagnoses, Medications, and Investigations tabs rather than duplicated.
+  Diagnoses, Medications, and Investigations tabs rather than duplicated. The Diagnoses tab passes
+  `enable_snomed_lookup=True`; this is the only per-tab specialization the function has, everything
+  else is identical across the four calls.
+- **`search_snomed_bioportal(query, max_results=5)`** — looks up candidate SNOMED CT concept codes
+  for a diagnosis's free text. SNOMED CT is licensed clinical terminology, so every legitimate
+  source gates real content behind at least a free account — a live NHS England Terminology Server
+  query, SNOMED International's own public browser, and a locally-hosted RF2 import (via `sct` or
+  `hermes`) were all considered and rejected as too much friction/infra for this app's scope, in
+  favour of a free BioPortal account + `BIOPORTAL_API_KEY`. Calls BioPortal's
+  `https://data.bioontology.org/search` REST endpoint with `ontologies=SNOMEDCT`, and pulls the
+  SNOMED CT concept id off the trailing segment of each result's `@id` URL (e.g.
+  `.../SNOMEDCT/4556007` → `4556007`) rather than requesting BioPortal's separate `notation` field,
+  since the URL is already present on every result by default. Returns up to `max_results`
+  `{code, display}` dicts. Only wired into the Diagnoses panel — Symptoms/Medications/Investigations
+  have no equivalent, matching the fact that `Diagnosis` is the only one of the four with a
+  `snomed_code` id field in `ENTITY_ID_FIELDS` below. Inside `render_results_panel`, it's called
+  on-demand from a "🔎 Find SNOMED code" button per diagnosis (not automatically on every
+  "Analyse" click, to avoid a BioPortal call per diagnosis on every extraction) into a
+  `st.session_state` candidates list; the resulting selectbox choice sets `snomed_code` and
+  `snomed_display` directly on that item's `attributes` dict — mutated in place via
+  `item.setdefault("attributes", {})` since `render_results_panel` iterates the same list object
+  stored in `st.session_state`, so no extra plumbing is needed to get the choice to stick. Those
+  attributes then flow through `_to_entity` into the entity's `properties` exactly like any other
+  extracted attribute. `snomed_display` isn't a `schema.json`-defined property on `Diagnosis` (only
+  `snomed_code` is), same as `Presentation`'s `descriptor` — an extra property that passes through
+  unvalidated.
 - **UI section** (bottom of the file) — a header row (`header_left`/`header_right` columns) with
   the "🏥 CliniPrompt GraphGen" title/caption on the left and a static, hardcoded mock patient
   banner (name, DOB/age, NHS number, sex, address — currently "Simpson, Homer" of 742 Evergreen
