@@ -323,7 +323,7 @@ P 83 regular
 Heart sounds normal
 Chest clear on auscultation
 No pedal oedema.""",
-        "diagnosis": "Exertional Angina",
+        "diagnosis": "Angina",
         "plan": """ECG
 Bloods - check FBC, U+E, HbA1C, Lipid profile
 Referral to cardiology

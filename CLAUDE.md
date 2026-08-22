@@ -253,18 +253,19 @@ Everything lives in `streamlit_app.py`, structured as:
   extraction results, encounter id, and Neo4j push status/graph visible until the next "Analyse"
   click — stale state that looked like it belonged to the newly-loaded case.
 - **`SAMPLE_CASES`** / sidebar loader — a dict of sample case name → `{history, examination,
-  diagnosis, plan}` text. All four cases (Sleep Apnoea, Gastritis, Exertional Angina, Gout) are
-  written to read as presentations from the same "Homer Simpson" mock patient the header banner
-  represents, matching his age (49) and lifestyle (diet, alcohol, obesity) rather than being
-  demographically generic. Unlike the rest of the file's string constants, these four are kept as
+  diagnosis, plan}` text. All four cases (Snoring & Daytime Sleepiness, Epigastric Pain,
+  Exertional Chest Tightness, Painful Swollen Toe) are written to read as presentations from the
+  same "Homer Simpson" mock patient the header banner represents, matching his age (49) and
+  lifestyle (diet, alcohol, obesity) rather than being demographically generic. Unlike the rest of
+  the file's string constants, these four are kept as
   verbatim clinician shorthand — multi-line triple-quoted strings preserving the original line
   breaks and abbreviations (`1/52`, `ETOH`, `NAD`, `U+E`, `Imp`, bullet-style plan lines, etc.)
   exactly as drafted, rather than normalized into full prose sentences — this was a deliberate
   choice (the user asked to keep their own text/shorthand/formatting rather than have it rewritten)
   and should be preserved if these cases are edited again; don't "clean up" the abbreviations back
-  into prose. One consequence: the "Exertional Angina" case has no explicit "Impression -" line in
-  the source notes, so its `diagnosis` value reuses the case's own heading text ("Exertional
-  Angina") rather than inventing a diagnostic sentence. The sidebar (`st.sidebar`, rendered right
+  into prose. One consequence: the "Exertional Chest Tightness" case has no explicit "Impression -"
+  line in the source notes, so its `diagnosis` value is a short standalone diagnostic term
+  ("Angina") rather than a sentence lifted from the notes. The sidebar (`st.sidebar`, rendered right
   after the API-key check) has a selectbox over `SAMPLE_CASES` and a "Load Sample Case" button
   that calls `reset_case_state()` (see above) and then writes the chosen case's fields directly
   into `st.session_state.history`/`.examination`/`.diagnosis`/`.plan` (the same
