@@ -823,16 +823,16 @@ with left:
         st.rerun()
 
     with st.container(border=True, height="content"):
-        st.subheader("History")
+        st.markdown("**History**")
         history = st.text_area("History", key="history", placeholder="Enter patient history...", height="content", label_visibility="collapsed")
 
-        st.subheader("Examination")
+        st.markdown("**Examination**")
         examination = st.text_area("Examination", key="examination", placeholder="Enter examination findings...", height="content", label_visibility="collapsed")
 
-        st.subheader("Diagnosis")
+        st.markdown("**Diagnosis**")
         diagnosis = st.text_area("Diagnosis", key="diagnosis", placeholder="Enter diagnosis...", height="content", label_visibility="collapsed")
 
-        st.subheader("Plan")
+        st.markdown("**Plan**")
         plan = st.text_area("Plan", key="plan", placeholder="Enter treatment plan...", height="content", label_visibility="collapsed")
 
         st.divider()
