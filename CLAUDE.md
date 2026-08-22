@@ -31,8 +31,10 @@ The app calls `load_dotenv()` against the project root on startup, then again ag
 `backend/` directory anymore, so that second call is currently a no-op; it's harmless but stale.
 
 `NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD`/`NEO4J_DATABASE` are optional — without them the app
-still works (extraction + JSON export), but the "Push to Neo4j" button and graph visualization
-panel are disabled.
+still works for extraction and review, but the "Generate Graph" button (which builds the entities
+payload, pushes it to Neo4j, and renders the graph visualization panel) stays disabled. There is no
+longer a standalone JSON export option, so without Neo4j credentials configured there's currently no
+way to get the built payload out of the app.
 
 `BIOPORTAL_API_KEY` is optional — without it the app still works end to end (extraction, edit,
 export, push); the "🔎 Find SNOMED code" lookup button on the Diagnoses panel just doesn't render
@@ -110,10 +112,10 @@ Everything lives in `streamlit_app.py`, structured as:
   — push the reviewed payload straight into Neo4j Aura and read it back for visualization.
   `get_neo4j_driver` is an `@st.cache_resource` singleton (one driver for the app's lifetime, per
   the Neo4j Python driver's guidance); returns `None` if `NEO4J_URI`/`NEO4J_USERNAME`/
-  `NEO4J_PASSWORD` aren't set, which is how the UI decides whether to enable the "Push to Neo4j"
+  `NEO4J_PASSWORD` aren't set, which is how the UI decides whether to enable the "Generate Graph"
   button. `push_encounter_to_neo4j` runs `_push_encounter_tx` inside `session.execute_write` (one
   managed transaction, auto-retried): every entity is a plain `CREATE` (never `MERGE`) — each
-  click of "Push to Neo4j" creates a fresh `Encounter` and its children, with no
+  click of "Generate Graph" creates a fresh `Encounter` and its children, with no
   update-in-place/idempotent-repush behavior, matching a one-shot "review, then save" action.
   `ENTITY_ID_FIELDS` maps each label to the Neo4j-key property it's created with
   (`Encounter→encounter_id`, `Diagnosis→snomed_code`, `Medication→dm_d_id`,
@@ -138,7 +140,15 @@ Everything lives in `streamlit_app.py`, structured as:
   f-string-interpolated into a query — defense-in-depth even though they only ever come from this
   app's own fixed vocabulary, never user input. `fetch_encounter_subgraph` re-queries the just-pushed
   Encounter and its immediate children for the visualization panel below (see next bullet) — it
-  does not read the whole accumulated Aura graph, only the current session's encounter.
+  does not read the whole accumulated Aura graph, only the current session's encounter. The
+  "Generate Graph" button used to sit alongside a separate "Generate Graph (JSON)" `download_button`
+  (two buttons in a `st.columns(2)` split); that download button was removed since it duplicated
+  what pushing to Neo4j already does internally (`build_entities_payload` still runs either way), so
+  "Generate Graph" is now the only action and spans the full width alone. It's given a blue
+  background via an inline `<style>` block scoped to `.st-key-push_to_neo4j` — Streamlit
+  auto-generates that class from the button's `key="push_to_neo4j"` — rather than `type="primary"`,
+  so it stands out from the "Analyse" button (which keeps the app's default primary color) without
+  changing Streamlit's global theme.
 - **Graph visualization** — after a successful push, the result of `fetch_encounter_subgraph` is
   rendered with `neo4j_viz.neo4j.from_neo4j(result)` (Neo4j's own official Python graph
   visualization library) and embedded via `st.iframe(vg.render().data, height=500)` (not
@@ -199,7 +209,9 @@ Everything lives in `streamlit_app.py`, structured as:
   Diagnosis/Plan inputs (each `text_area` uses `height="content"` so it grows with what's typed
   instead of clipping at a fixed pixel height) with the "Analyse" button anchored at its bottom,
   directly under Plan — deliberately *not* a separate spacer column, so the button reads as the
-  terminal action of the input card rather than an island between two panes. The right pane is a
+  terminal action of the input card rather than an island between two panes. Each field's label
+  (`History`/`Examination`/`Diagnosis`/`Plan`) is rendered as bold `st.markdown` text rather than
+  `st.subheader`, keeping the input card visually lighter than a page of section headings. The right pane is a
   second bordered `st.container(height=700)` holding the tabbed results panel (Symptoms, Diagnoses,
   Medications, Investigations tabs, `height="stretch"` so the tab body fills the card); the fixed
   `height=700` gives it its own internal scrollbar once results are long, so reviewing a big

@@ -2,7 +2,6 @@
 """Streamlit app for clinical consultation symptom extraction."""
 
 import base64
-import json
 import os
 import re
 from datetime import datetime
@@ -742,7 +741,7 @@ with header_right:
                     gap: 0.75rem; padding-top: 1.5rem;">
             <div style="text-align: right; line-height: 1.6;">
                 <div><strong>Simpson, Homer</strong></div>
-                <div>DOB: 12-Feb-1977 (49y)</div>
+                <div>DOB: 12-May-1977 (49y)</div>
                 <div>NHS No: 485 773 2091</div>
                 <div>Sex: Male</div>
                 <div>Address: 742 Evergreen Terrace, Springfield</div>
@@ -959,31 +958,48 @@ with results_pane:
         )
 
         neo4j_configured = bool(NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD)
-        dl_col, push_col = st.columns(2)
-        with dl_col:
-            st.download_button(
-                "Generate Graph (JSON)",
-                data=json.dumps(payload, indent=2),
-                file_name=f"clinical_graph_{datetime.now().strftime('%Y-%m-%d')}.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-        with push_col:
-            if st.button("Push to Neo4j", use_container_width=True, disabled=not neo4j_configured):
-                try:
-                    with st.spinner("Pushing to Neo4j..."):
-                        nodes, rels = push_encounter_to_neo4j(payload)
-                        result = fetch_encounter_subgraph(st.session_state.encounter_id)
-                        vg = from_neo4j(result)
-                        vg.color_nodes(field="caption")
-                        st.session_state.graph_viz_html = vg.render().data
-                    st.session_state.neo4j_push_status = (
-                        f"success: Pushed {nodes} nodes and {rels} relationships to Neo4j."
-                    )
-                except Exception as e:
-                    st.session_state.neo4j_push_status = f"error: Failed to push to Neo4j: {e}"
-            if not neo4j_configured:
-                st.caption("Set NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD in .env to enable this.")
+        st.markdown(
+            """
+            <style>
+            .st-key-push_to_neo4j button {
+                background-color: #1f6feb;
+                border-color: #1f6feb;
+                color: white;
+            }
+            .st-key-push_to_neo4j button:hover {
+                background-color: #1a5fc4;
+                border-color: #1a5fc4;
+                color: white;
+            }
+            .st-key-push_to_neo4j button:disabled {
+                background-color: #1f6feb;
+                border-color: #1f6feb;
+                opacity: 0.5;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "Generate Graph",
+            use_container_width=True,
+            disabled=not neo4j_configured,
+            key="push_to_neo4j",
+        ):
+            try:
+                with st.spinner("Pushing to Neo4j..."):
+                    nodes, rels = push_encounter_to_neo4j(payload)
+                    result = fetch_encounter_subgraph(st.session_state.encounter_id)
+                    vg = from_neo4j(result)
+                    vg.color_nodes(field="caption")
+                    st.session_state.graph_viz_html = vg.render().data
+                st.session_state.neo4j_push_status = (
+                    f"success: Pushed {nodes} nodes and {rels} relationships to Neo4j."
+                )
+            except Exception as e:
+                st.session_state.neo4j_push_status = f"error: Failed to push to Neo4j: {e}"
+        if not neo4j_configured:
+            st.caption("Set NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD in .env to enable this.")
 
         if st.session_state.neo4j_push_status:
             kind, _, message = st.session_state.neo4j_push_status.partition(": ")
