@@ -273,7 +273,7 @@ PROCEDURE_EXTRACTION_EXAMPLES = [
 
 
 SAMPLE_CASES = {
-    "Sleep Apnoea": {
+    "Snoring & Daytime Sleepiness": {
         "history": """Wife Marge reports increased snoring last 6/12. Episodes of pauses in breathing during sleep. Wakes up gasping. Sleep unrefreshing and feeling excessive sleepiness during day. Impacting work as nuclear safety officer - often falling asleep at work.
 Non smoker. Alcohol 6 units 3-4x a week. Obese.
 Driving.""",
@@ -295,7 +295,7 @@ Referral to sleep clinic for OSA
 Patient information leaflet provided
 Review with results of above""",
     },
-    "Gastritis": {
+    "Epigastric Pain": {
         "history": """Presents with 1/52 epigastric pain and retrosternal acid sensation/burning. Associated with excessive belching. No dysphagia. No black or bloody stools. No vomiting. No weight loss. Pain is not exertional.
 Symptoms started after entering 'chilli eating' contest followed by ++beer
 No NSAID use""",
@@ -312,7 +312,7 @@ Advised to avoid spicy food/ETOH/NSAIDs
 Review with results
 Seek review if worsening symptoms""",
     },
-    "Exertional Angina": {
+    "Exertional Chest Tightness": {
         "history": """Presents with 4/12 history of central chest tightness on exertion. No radiation to arms/neck. Some associated SOB. No presyncope/syncope.
 Symptoms occurring on inclines after 50m.
 No rest pain.
@@ -331,7 +331,7 @@ Referral to cardiology
 Prescribed GTN spray and advised on use
 Seek urgent medical review if increasing/severe pain""",
     },
-    "Gout": {
+    "Painful Swollen Toe": {
         "history": """Presents with 2/7 history of pain, swelling and erythema in right Hallux MTPJ. No trauma. No prev occurrence. Started after summer BBQ with beer + ribs.
 No fever.""",
         "examination": """BP 139/61
