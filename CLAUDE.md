@@ -149,9 +149,17 @@ Everything lives in `streamlit_app.py`, structured as:
   Diagnoses, Medications, and Investigations tabs rather than duplicated.
 - **UI section** (bottom of the file) — a header row (`header_left`/`header_right` columns) with
   the "🏥 CliniPrompt GraphGen" title/caption on the left and a static, hardcoded mock patient
-  banner (name, DOB/age, NHS number, sex — currently "Simpson, Homer") right-aligned on the right,
-  purely cosmetic to make the screen read like a clinical health record; it isn't wired to
-  session state or `SAMPLE_CASES`, so it doesn't change when a sample case is loaded. Below that,
+  banner (name, DOB/age, NHS number, sex, address — currently "Simpson, Homer" of 742 Evergreen
+  Terrace, Springfield) right-aligned on the right, purely cosmetic to make the screen read like a
+  clinical health record; it isn't wired to session state or `SAMPLE_CASES`, so it doesn't change
+  when a sample case is loaded. The banner also renders a photo (`PATIENT_PHOTO_PATH`, resolved via
+  `Path(__file__).parent` so it doesn't depend on the app's working directory, currently pointing
+  at `homer.jpg` in the project root) as a 64px circular thumbnail immediately to its left, both
+  wrapped in one flex row so the photo and text block right-align as a single unit; the image is
+  read and base64-encoded fresh on every rerun (`base64.b64encode(PATIENT_PHOTO_PATH.read_bytes())`)
+  and inlined as a `data:image/jpeg;base64,...` `<img src>` rather than passed to `st.image`, so it
+  stays inside the same right-aligned flex container as the text instead of Streamlit laying it out
+  as a separate element. Below that,
   a two-pane layout: a bordered `st.container` on the left holding the History/Examination/
   Diagnosis/Plan inputs (each `text_area` uses `height="content"` so it grows with what's typed
   instead of clipping at a fixed pixel height) with the "Analyse" button anchored at its bottom,
@@ -181,9 +189,21 @@ Everything lives in `streamlit_app.py`, structured as:
   object — safe for one user, broken for concurrent ones. Don't reintroduce module-level/global
   mutable state for request data.
 - **`SAMPLE_CASES`** / sidebar loader — a dict of sample case name → `{history, examination,
-  diagnosis, plan}` text. The sidebar (`st.sidebar`, rendered right after the API-key check) has a
-  selectbox over `SAMPLE_CASES` and a "Load Sample Case" button that writes the chosen case's
-  fields directly into `st.session_state.history`/`.examination`/`.diagnosis`/`.plan` (the same
+  diagnosis, plan}` text. All four cases (Sleep Apnoea, Gastritis, Exertional Angina, Gout) are
+  written to read as presentations from the same "Homer Simpson" mock patient the header banner
+  represents, matching his age (49) and lifestyle (diet, alcohol, obesity) rather than being
+  demographically generic. Unlike the rest of the file's string constants, these four are kept as
+  verbatim clinician shorthand — multi-line triple-quoted strings preserving the original line
+  breaks and abbreviations (`1/52`, `ETOH`, `NAD`, `U+E`, `Imp`, bullet-style plan lines, etc.)
+  exactly as drafted, rather than normalized into full prose sentences — this was a deliberate
+  choice (the user asked to keep their own text/shorthand/formatting rather than have it rewritten)
+  and should be preserved if these cases are edited again; don't "clean up" the abbreviations back
+  into prose. One consequence: the "Exertional Angina" case has no explicit "Impression -" line in
+  the source notes, so its `diagnosis` value reuses the case's own heading text ("Exertional
+  Angina") rather than inventing a diagnostic sentence. The sidebar (`st.sidebar`, rendered right
+  after the API-key check) has a selectbox over `SAMPLE_CASES` and a "Load Sample Case" button that
+  writes the chosen case's fields directly into
+  `st.session_state.history`/`.examination`/`.diagnosis`/`.plan` (the same
   keys the four `text_area` widgets use), sets `st.session_state.collapse_sidebar = True`, and
   calls `st.rerun()`. This relies on the sidebar block executing *before* the `text_area` widgets
   are instantiated later in the script — Streamlit requires a widget's session-state value to be
