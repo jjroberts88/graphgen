@@ -635,7 +635,7 @@ def render_results_panel(state_key, source_text_key, expanded_key, panel_title, 
 
 st.set_page_config(
     page_title="Clinical Consultation Analyzer",
-    page_icon="🏥",
+    page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -681,11 +681,58 @@ if "collapse_sidebar" not in st.session_state:
 if "sidebar_expand_checked" not in st.session_state:
     st.session_state.sidebar_expand_checked = False
 
+def reset_case_state(clear_fields: bool = False) -> None:
+    """Clear all extraction results and encounter state for the current case.
+
+    Used both by "New Case" (which also blanks the input fields) and by
+    "Load Sample Case" (which leaves clear_fields False since it immediately
+    overwrites the fields with the new case's text) - switching cases
+    shouldn't leave a previous case's stale results/encounter_id/graph
+    lingering in the results panel.
+    """
+    st.session_state.symptoms = []
+    st.session_state.diagnoses = []
+    st.session_state.medications = []
+    st.session_state.investigations = []
+
+    # Dynamic per-item SNOMED lookup keys (see render_results_panel) aren't
+    # covered by the state_key resets above since they're keyed by item index
+    # - without this, a new case's item at the same index could pick up a
+    # stale SNOMED candidate list/choice from the previous case.
+    for key in list(st.session_state.keys()):
+        if any(
+            key.startswith(f"{state_key}_snomed_")
+            for state_key in ("symptoms", "diagnoses", "medications", "investigations")
+        ):
+            del st.session_state[key]
+
+    st.session_state.symptom_source_text = ""
+    st.session_state.diagnosis_source_text = ""
+    st.session_state.medication_source_text = ""
+    st.session_state.investigation_source_text = ""
+    st.session_state.symptom_expanded_index = None
+    st.session_state.diagnosis_expanded_index = None
+    st.session_state.medication_expanded_index = None
+    st.session_state.investigation_expanded_index = None
+    st.session_state.original_text = ""
+    st.session_state.encounter_datetime = None
+    st.session_state.encounter_id = None
+    st.session_state.neo4j_push_status = ""
+    st.session_state.graph_viz_html = None
+    st.session_state.error = ""
+
+    if clear_fields:
+        st.session_state.history = ""
+        st.session_state.examination = ""
+        st.session_state.diagnosis = ""
+        st.session_state.plan = ""
+
+
 header_left, header_right = st.columns([3, 1])
 
 with header_left:
-    st.title("🏥 CliniPrompt GraphGen")
-    st.caption("Enter clinical information and extract symptoms")
+    st.title("🧬 CliniPrompt GraphGen")
+    st.caption("Create a clinical knowledge graph (CKG) from clinical notes")
 
 with header_right:
     photo_b64 = base64.b64encode(PATIENT_PHOTO_PATH.read_bytes()).decode("utf-8")
@@ -723,6 +770,7 @@ with st.sidebar:
     selected_case = st.selectbox("Choose a sample case", options=list(SAMPLE_CASES.keys()))
     if st.button("Load Sample Case", use_container_width=True):
         case = SAMPLE_CASES[selected_case]
+        reset_case_state()
         st.session_state.history = case["history"]
         st.session_state.examination = case["examination"]
         st.session_state.diagnosis = case["diagnosis"]
@@ -770,6 +818,10 @@ if not st.session_state.sidebar_expand_checked:
 left, right = st.columns([1, 1.2], gap="large")
 
 with left:
+    if st.button("🆕 New Case", use_container_width=True):
+        reset_case_state(clear_fields=True)
+        st.rerun()
+
     with st.container(border=True, height="content"):
         st.subheader("History")
         history = st.text_area("History", key="history", placeholder="Enter patient history...", height="content", label_visibility="collapsed")

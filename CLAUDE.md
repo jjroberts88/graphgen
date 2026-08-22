@@ -182,7 +182,8 @@ Everything lives in `streamlit_app.py`, structured as:
   `snomed_code` is), same as `Presentation`'s `descriptor` — an extra property that passes through
   unvalidated.
 - **UI section** (bottom of the file) — a header row (`header_left`/`header_right` columns) with
-  the "🏥 CliniPrompt GraphGen" title/caption on the left and a static, hardcoded mock patient
+  the "🧬 CliniPrompt GraphGen" title (caption: "Create a clinical knowledge graph (CKG) from
+  clinical notes") on the left and a static, hardcoded mock patient
   banner (name, DOB/age, NHS number, sex, address — currently "Simpson, Homer" of 742 Evergreen
   Terrace, Springfield) right-aligned on the right, purely cosmetic to make the screen read like a
   clinical health record; it isn't wired to session state or `SAMPLE_CASES`, so it doesn't change
@@ -222,6 +223,23 @@ Everything lives in `streamlit_app.py`, structured as:
   old FastAPI backend, which stored the last extraction result as attributes on the global `app`
   object — safe for one user, broken for concurrent ones. Don't reintroduce module-level/global
   mutable state for request data.
+- **`reset_case_state(clear_fields=False)`** — clears every piece of case-scoped session state:
+  the four extraction result lists, their `*_source_text`/`*_expanded_index` companions, the
+  dynamic per-item SNOMED lookup keys `render_results_panel` creates (`{state_key}_snomed_
+  candidates_{idx}`/`{state_key}_snomed_choice_{idx}` — these aren't covered by resetting the
+  result lists since they're keyed by item index, so a new case's item at the same index could
+  otherwise inherit a stale SNOMED candidate/choice from the previous case), `original_text`,
+  `encounter_datetime`/`encounter_id`, `neo4j_push_status`, `graph_viz_html`, and `error`. With
+  `clear_fields=True` it also blanks `st.session_state.history`/`.examination`/`.diagnosis`/
+  `.plan` — i.e. the same keys the four `text_area` widgets use. Called two ways: the "🆕 New
+  Case" button, rendered in `left` just above (not inside) the bordered input container, calls it
+  with `clear_fields=True` and reruns, giving a blank slate for manual entry; the sidebar's "Load
+  Sample Case" button (below) calls it with the default `clear_fields=False` right before
+  overwriting the four fields with the new case's text. Both call sites run before the
+  `text_area` widgets are instantiated later in the script, same ordering constraint as the
+  sidebar loader below. Without this, switching cases (either way) left the previous case's
+  extraction results, encounter id, and Neo4j push status/graph visible until the next "Analyse"
+  click — stale state that looked like it belonged to the newly-loaded case.
 - **`SAMPLE_CASES`** / sidebar loader — a dict of sample case name → `{history, examination,
   diagnosis, plan}` text. All four cases (Sleep Apnoea, Gastritis, Exertional Angina, Gout) are
   written to read as presentations from the same "Homer Simpson" mock patient the header banner
@@ -235,9 +253,9 @@ Everything lives in `streamlit_app.py`, structured as:
   into prose. One consequence: the "Exertional Angina" case has no explicit "Impression -" line in
   the source notes, so its `diagnosis` value reuses the case's own heading text ("Exertional
   Angina") rather than inventing a diagnostic sentence. The sidebar (`st.sidebar`, rendered right
-  after the API-key check) has a selectbox over `SAMPLE_CASES` and a "Load Sample Case" button that
-  writes the chosen case's fields directly into
-  `st.session_state.history`/`.examination`/`.diagnosis`/`.plan` (the same
+  after the API-key check) has a selectbox over `SAMPLE_CASES` and a "Load Sample Case" button
+  that calls `reset_case_state()` (see above) and then writes the chosen case's fields directly
+  into `st.session_state.history`/`.examination`/`.diagnosis`/`.plan` (the same
   keys the four `text_area` widgets use), sets `st.session_state.collapse_sidebar = True`, and
   calls `st.rerun()`. This relies on the sidebar block executing *before* the `text_area` widgets
   are instantiated later in the script — Streamlit requires a widget's session-state value to be
