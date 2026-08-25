@@ -357,17 +357,30 @@ def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> lis
     )
 
     items = []
+    seen_spans = set()
     for extraction in result.extractions:
+        position = (
+            {
+                "start": extraction.char_interval.start_pos,
+                "end": extraction.char_interval.end_pos,
+            }
+            if extraction.char_interval
+            else None
+        )
+        # The model occasionally emits more than one identical extraction for the same
+        # mention (e.g. a single-word diagnosis field producing several "Gastritis"
+        # extractions) — skip repeats of the same text at the same position rather than
+        # creating a duplicate downstream item/node for each one.
+        dedupe_key = (position["start"], position["end"]) if position else extraction.extraction_text.strip().lower()
+        if dedupe_key in seen_spans:
+            continue
+        seen_spans.add(dedupe_key)
+
         items.append(
             {
                 "text": extraction.extraction_text,
                 "attributes": extraction.attributes or {},
-                "position": {
-                    "start": extraction.char_interval.start_pos,
-                    "end": extraction.char_interval.end_pos,
-                }
-                if extraction.char_interval
-                else None,
+                "position": position,
             }
         )
     return items
@@ -474,6 +487,15 @@ def get_neo4j_driver():
 
 
 def _push_encounter_tx(tx, payload: dict) -> tuple[int, int]:
+    # Re-pushing the same encounter (accidental double-click, rerun, retry) must not
+    # accumulate duplicate nodes — clear out any prior push for this encounter_id first,
+    # so the graph always reflects only the current state of the current case.
+    encounter_id = payload["entities"][0]["id"]
+    tx.run(
+        "MATCH (e:Encounter {encounter_id: $id}) OPTIONAL MATCH (e)-->(child) DETACH DELETE e, child",
+        id=encounter_id,
+    )
+
     entity_map = {}  # payload entity id -> (label, persisted id)
     nodes_created = 0
 
