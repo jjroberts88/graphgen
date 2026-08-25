@@ -357,7 +357,7 @@ def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> lis
     )
 
     items = []
-    seen_spans = set()
+    seen_texts = set()
     for extraction in result.extractions:
         position = (
             {
@@ -369,12 +369,13 @@ def run_extraction(text: str, model_id: str, prompt: str, examples: list) -> lis
         )
         # The model occasionally emits more than one identical extraction for the same
         # mention (e.g. a single-word diagnosis field producing several "Gastritis"
-        # extractions) — skip repeats of the same text at the same position rather than
-        # creating a duplicate downstream item/node for each one.
-        dedupe_key = (position["start"], position["end"]) if position else extraction.extraction_text.strip().lower()
-        if dedupe_key in seen_spans:
+        # extractions), and langextract's alignment can assign these near-duplicates
+        # slightly different (or missing) char intervals — so dedupe on the normalized
+        # extraction text itself rather than position, to reliably catch all of them.
+        dedupe_key = extraction.extraction_text.strip().lower()
+        if dedupe_key in seen_texts:
             continue
-        seen_spans.add(dedupe_key)
+        seen_texts.add(dedupe_key)
 
         items.append(
             {
@@ -483,6 +484,12 @@ def get_neo4j_driver():
         return None
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
     driver.verify_connectivity()
+    # Enforce encounter_id uniqueness at the database level — each encounter must
+    # remain independently addressable, not just rely on uuid4() never colliding.
+    driver.execute_query(
+        "CREATE CONSTRAINT encounter_id_unique IF NOT EXISTS FOR (e:Encounter) REQUIRE e.encounter_id IS UNIQUE",
+        database_=NEO4J_DATABASE,
+    )
     return driver
 
 
