@@ -4,6 +4,7 @@
 import base64
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -503,7 +504,7 @@ def _push_encounter_tx(tx, payload: dict) -> tuple[int, int]:
         id=encounter_id,
     )
 
-    entity_map = {}  # payload entity id -> (label, persisted id)
+    entity_map = {}  # payload entity id -> (label, element id of the node just created)
     nodes_created = 0
 
     for entity in payload["entities"]:
@@ -524,21 +525,25 @@ def _push_encounter_tx(tx, payload: dict) -> tuple[int, int]:
             properties.setdefault("name", entity["text"])
 
         prop_str = ", ".join(f"{k}: ${k}" for k in properties)
-        tx.run(f"CREATE (n:{entity_type} {{{prop_str}}})", **properties)
-        entity_map[entity["id"]] = (entity_type, persisted_id)
+        result = tx.run(f"CREATE (n:{entity_type} {{{prop_str}}}) RETURN elementId(n) AS eid", **properties)
+        entity_map[entity["id"]] = (entity_type, result.single()["eid"])
         nodes_created += 1
 
     rels_created = 0
     for rel in payload["relationships"]:
-        from_type, from_id = entity_map[rel["source"]]
-        to_type, to_id = entity_map[rel["target"]]
-        from_field, to_field = ENTITY_ID_FIELDS[from_type], ENTITY_ID_FIELDS[to_type]
+        _, from_eid = entity_map[rel["source"]]
+        _, to_eid = entity_map[rel["target"]]
         rel_type = _safe_identifier(rel["type"])
+        # Match the exact nodes just created in this transaction (by internal element id),
+        # not by natural key (e.g. Diagnosis.snomed_code) — a natural key can collide with a
+        # node from a *different* encounter's earlier push (same SNOMED code looked up twice),
+        # and matching by property value would wire this encounter's relationship to that
+        # unrelated historical node too, making it show up in this encounter's subgraph.
         tx.run(
-            f"MATCH (from:{from_type} {{{from_field}: $from_id}}), (to:{to_type} {{{to_field}: $to_id}}) "
+            "MATCH (from), (to) WHERE elementId(from) = $from_eid AND elementId(to) = $to_eid "
             f"CREATE (from)-[:{rel_type}]->(to)",
-            from_id=from_id,
-            to_id=to_id,
+            from_eid=from_eid,
+            to_eid=to_eid,
         )
         rels_created += 1
 
@@ -886,44 +891,41 @@ with results_pane:
                     st.session_state.neo4j_push_status = ""
                     st.session_state.graph_viz_html = None
 
+                    # The four extraction passes are independent (different source fields,
+                    # no shared state) — run them concurrently rather than one after another,
+                    # so the wait is roughly one LLM call's latency instead of four stacked up.
+                    jobs = {}
                     if history.strip():
-                        st.session_state.symptoms = run_extraction(
-                            history, model_id, EXTRACTION_PROMPT, EXTRACTION_EXAMPLES
-                        )
-                        st.session_state.symptom_source_text = history
-                    else:
-                        st.session_state.symptoms = []
-                        st.session_state.symptom_source_text = ""
+                        jobs["symptoms"] = (history, EXTRACTION_PROMPT, EXTRACTION_EXAMPLES)
+                    if diagnosis.strip():
+                        jobs["diagnoses"] = (diagnosis, DIAGNOSIS_EXTRACTION_PROMPT, DIAGNOSIS_EXTRACTION_EXAMPLES)
+                    if plan.strip():
+                        jobs["medications"] = (plan, MEDICATION_EXTRACTION_PROMPT, MEDICATION_EXTRACTION_EXAMPLES)
+                        jobs["investigations"] = (plan, PROCEDURE_EXTRACTION_PROMPT, PROCEDURE_EXTRACTION_EXAMPLES)
+
+                    results = {}
+                    if jobs:
+                        with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
+                            futures = {
+                                key: executor.submit(run_extraction, text, model_id, prompt, examples)
+                                for key, (text, prompt, examples) in jobs.items()
+                            }
+                            results = {key: future.result() for key, future in futures.items()}
+
+                    st.session_state.symptoms = results.get("symptoms", [])
+                    st.session_state.symptom_source_text = history if "symptoms" in results else ""
                     st.session_state.symptom_expanded_index = None
 
-                    if diagnosis.strip():
-                        st.session_state.diagnoses = run_extraction(
-                            diagnosis, model_id, DIAGNOSIS_EXTRACTION_PROMPT, DIAGNOSIS_EXTRACTION_EXAMPLES
-                        )
-                        st.session_state.diagnosis_source_text = diagnosis
-                    else:
-                        st.session_state.diagnoses = []
-                        st.session_state.diagnosis_source_text = ""
+                    st.session_state.diagnoses = results.get("diagnoses", [])
+                    st.session_state.diagnosis_source_text = diagnosis if "diagnoses" in results else ""
                     st.session_state.diagnosis_expanded_index = None
 
-                    if plan.strip():
-                        st.session_state.medications = run_extraction(
-                            plan, model_id, MEDICATION_EXTRACTION_PROMPT, MEDICATION_EXTRACTION_EXAMPLES
-                        )
-                        st.session_state.medication_source_text = plan
-                    else:
-                        st.session_state.medications = []
-                        st.session_state.medication_source_text = ""
+                    st.session_state.medications = results.get("medications", [])
+                    st.session_state.medication_source_text = plan if "medications" in results else ""
                     st.session_state.medication_expanded_index = None
 
-                    if plan.strip():
-                        st.session_state.investigations = run_extraction(
-                            plan, model_id, PROCEDURE_EXTRACTION_PROMPT, PROCEDURE_EXTRACTION_EXAMPLES
-                        )
-                        st.session_state.investigation_source_text = plan
-                    else:
-                        st.session_state.investigations = []
-                        st.session_state.investigation_source_text = ""
+                    st.session_state.investigations = results.get("investigations", [])
+                    st.session_state.investigation_source_text = plan if "investigations" in results else ""
                     st.session_state.investigation_expanded_index = None
                 except Exception as e:
                     st.session_state.error = f"Failed to analyse: {e}"

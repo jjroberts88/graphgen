@@ -135,6 +135,22 @@ Everything lives in `streamlit_app.py`, structured as:
   investigations either, even though `schema.json`'s `Procedure` allows one) — both always get a
   fresh `uuid4()` rather than a `temp-` placeholder, since that placeholder specifically signals "a
   real-world code should exist here but wasn't extracted," which doesn't apply to either type.
+  `ENTITY_ID_FIELDS`'/`persisted_id` only decide the *property value* written onto each new node —
+  they are not used to find nodes when wiring relationships. `_push_encounter_tx` instead captures
+  each node's internal `elementId(n)` right off its `CREATE` (returned in the same `tx.run` and
+  stored in `entity_map` alongside the label) and creates every relationship with
+  `MATCH (from), (to) WHERE elementId(from) = $from_eid AND elementId(to) = $to_eid`, never by
+  matching `{snomed_code: ...}`/`{dm_d_id: ...}` etc. This was a deliberate fix (previously the
+  relationship `MATCH` matched on the natural-key property, which only has a uniqueness
+  *constraint* for `Encounter.encounter_id` — every other label has none): since a Diagnosis'
+  `snomed_code` is a real, reusable value once a user picks one via the BioPortal lookup, pushing a
+  second encounter with the same SNOMED code created a second `Diagnosis` node with an identical
+  `snomed_code` (still `CREATE`, never `MERGE`), and the old property-matching `MATCH` would then
+  match *both* nodes — wiring the new encounter's relationship to the older, unrelated encounter's
+  Diagnosis node too, so a fresh "Analyse" + push would show a prior case's diagnosis node
+  alongside the current one in `fetch_encounter_subgraph`'s result. Matching by `elementId` instead
+  scopes every relationship to exactly the nodes created in that same push's transaction, no matter
+  what any node's natural-key property value is or how many other nodes happen to share it.
   Cypher label/relationship-type
   strings are validated with `_safe_identifier` (`^[A-Za-z_][A-Za-z0-9_]*$`) before being
   f-string-interpolated into a query — defense-in-depth even though they only ever come from this
