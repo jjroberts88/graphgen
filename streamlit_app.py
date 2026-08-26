@@ -37,7 +37,16 @@ DEFAULT_MODEL_ID = "gemini-3.5-flash-lite"
 
 PATIENT_PHOTO_PATH = Path(__file__).parent / "homer.jpg"
 
-EXTRACTION_PROMPT = """Extract all medical symptoms mentioned in this patient history.
+EXTRACTION_PROMPT = """Extract all medical symptoms the patient is currently experiencing,
+as mentioned in this patient history.
+
+Only extract symptoms that are affirmed as present. Do not extract a symptom that is
+negated, denied, or explicitly ruled out — e.g. "no syncope", "denies chest pain",
+"no fever or rigors", "presyncope absent", "negative for nausea/vomiting" — none of the
+symptoms in those phrases should be extracted, no matter how the negation is worded
+(before or after the symptom, listed individually or grouped together). Also skip
+symptoms mentioned only as part of a family or past medical history unrelated to the
+current presentation. If a symptom is mentioned more than once, only extract it once.
 
 For each symptom, extract only its core/canonical name, e.g. "cough" (not "productive
 cough with green sputum"), "headache" (not "severe left-sided throbbing headache"). Do not
@@ -102,7 +111,24 @@ EXTRACTION_EXAMPLES = [
                 },
             ),
         ],
-    )
+    ),
+    lx.data.ExampleData(
+        text="""Patient presents with palpitations for the last week. No syncope or
+        presyncope. Denies chest pain or shortness of breath. Negative for
+        nausea/vomiting.""",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="symptom",
+                extraction_text="palpitations",
+                attributes={
+                    "body_part": "chest",
+                    "severity": None,
+                    "duration": "for the last week",
+                    "descriptor": None,
+                },
+            ),
+        ],
+    ),
 ]
 
 # Mirrors the Diagnosis entity in schema.json (status/certainty enums). Runs

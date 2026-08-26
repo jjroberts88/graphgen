@@ -67,7 +67,14 @@ Everything lives in `streamlit_app.py`, structured as:
   that describe the same symptom differently, rather than producing a different-looking node per
   phrasing. `descriptor` isn't a property `schema.json` defines on `Presentation` (only
   `name`/`severity`/`duration` are), same as the pre-existing `body_part` attribute — extra
-  properties pass through unvalidated. If extraction quality needs tuning, this is where it
+  properties pass through unvalidated. Symptom extraction also explicitly excludes negated
+  findings: the prompt instructs the LLM not to extract anything denied/ruled out ("no
+  syncope/presyncope", "denies chest pain", "negative for nausea/vomiting"), and
+  `EXTRACTION_EXAMPLES` includes a second few-shot example pairing an affirmed symptom with
+  several negated ones in the same passage, so the model has a concrete pattern to match rather
+  than relying on the prose instruction alone — clinical History text is dense with negatives
+  (pertinent negatives, "No X. No Y."), and without this the LLM previously extracted those
+  negated terms as if they were present. If extraction quality needs tuning, this is where it
   happens.
 - **`run_extraction(text, model_id, prompt, examples)`** — calls `lx.extract(...)` and normalizes
   the result into a list of `{text, attributes, position}` dicts. `position` holds character
